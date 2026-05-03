@@ -1,35 +1,15 @@
-package config
+package main
 
-import "os"
+import (
+	"fmt"
 
-const (
-	defaultServerAddress = ":8080"
-	defaultLogLevel      = "info"
-
-	envServerAddress = "GOPHPROFILE_SERVER_ADDRESS"
-	envLogLevel      = "GOPHPROFILE_LOG_LEVEL"
+	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 )
 
-// ServerConfig хранит настройки HTTP-сервера.
-type ServerConfig struct {
-	Address  string
-	LogLevel string
-}
+func main() {
+	cfg := config.LoadServer()
 
-// LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
-func LoadServer() ServerConfig {
-	return ServerConfig{
-		Address:  getEnv(envServerAddress, defaultServerAddress),
-		LogLevel: getEnv(envLogLevel, defaultLogLevel),
-	}
-}
-
-// getEnv возвращает значение переменной окружения или значение по умолчанию.
-func getEnv(key string, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-
-	return value
+	fmt.Printf("GophProfile server started\n")
+	fmt.Printf("address: %s\n", cfg.Address)
+	fmt.Printf("log level: %s\n", cfg.LogLevel)
 }

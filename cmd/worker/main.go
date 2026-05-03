@@ -2,14 +2,13 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"time"
+
+	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 )
 
 func main() {
-	log.Println("Starting worker...")
-	for {
-		fmt.Println("Worker is running...")
-		time.Sleep(10 * time.Second)
-	}
+	cfg := config.LoadWorker()
+
+	fmt.Printf("GophProfile worker started\n")
+	fmt.Printf("log level: %s\n", cfg.LogLevel)
 }
