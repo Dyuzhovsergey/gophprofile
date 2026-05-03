@@ -1,15 +1,25 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	"go.uber.org/zap"
 )
 
 func main() {
 	cfg := config.LoadServer()
 
-	fmt.Printf("GophProfile server started\n")
-	fmt.Printf("address: %s\n", cfg.Address)
-	fmt.Printf("log level: %s\n", cfg.LogLevel)
+	log, err := logger.Init(cfg.LogLevel)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		_ = log.Sync()
+	}()
+
+	log.Info(
+		"GophProfile server started",
+		zap.String("address", cfg.Address),
+		zap.String("log_level", cfg.LogLevel),
+	)
 }
