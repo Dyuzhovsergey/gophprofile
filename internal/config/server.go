@@ -1,3 +1,4 @@
+// Package config contains configuration for the server.
 package config
 
 import "os"
