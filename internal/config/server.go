@@ -1,4 +1,4 @@
-// Package config contains configuration for the server.
+// Package config содержит загрузку и хранение конфигурации приложения GophProfile.
 package config
 
 import "os"
