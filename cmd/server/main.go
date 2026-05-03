@@ -1,8 +1,14 @@
 package main
 
 import (
+	"errors"
+	"net/http"
+	"time"
+
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
+	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -17,9 +23,22 @@ func main() {
 		_ = log.Sync()
 	}()
 
+	router := chi.NewRouter()
+	router.Get("/health", handlers.Health)
+
+	server := &http.Server{
+		Addr:              cfg.Address,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	log.Info(
-		"GophProfile server started",
+		"GophProfile server starting",
 		zap.String("address", cfg.Address),
 		zap.String("log_level", cfg.LogLevel),
 	)
+
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal("GophProfile server stopped with error", zap.Error(err))
+	}
 }
