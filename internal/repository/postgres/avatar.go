@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -368,7 +367,3 @@ func mapAvatarScanError(err error) error {
 
 	return fmt.Errorf("scan avatar: %w", err)
 }
-
-// ensureTimeUsed нужен, чтобы явно зафиксировать использование time в этом файле
-// при будущих доработках scan-логики.
-var _ = time.Time{}
