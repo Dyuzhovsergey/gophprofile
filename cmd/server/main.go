@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
+	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -24,11 +26,20 @@ func main() {
 		_ = log.Sync()
 	}()
 
+	db, err := postgres.NewPool(context.Background(), cfg.DatabaseDSN)
+	if err != nil {
+		log.Fatal("failed to connect to postgres", zap.Error(err))
+	}
+	defer db.Close()
+
+	log.Info("connected to postgres")
+
 	router := chi.NewRouter()
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
 
-	router.Get("/health", handlers.Health)
+	healthHandler := handlers.NewHealthHandler(db)
+	router.Get("/health", healthHandler.Handle)
 
 	server := &http.Server{
 		Addr:              cfg.Address,
