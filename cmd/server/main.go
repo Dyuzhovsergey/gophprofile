@@ -8,6 +8,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -24,6 +25,9 @@ func main() {
 	}()
 
 	router := chi.NewRouter()
+	router.Use(middleware.Recover(log))
+	router.Use(middleware.RequestLogger(log))
+
 	router.Get("/health", handlers.Health)
 
 	server := &http.Server{
