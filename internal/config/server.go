@@ -17,6 +17,7 @@ type ServerConfig struct {
 	Address     string
 	LogLevel    string
 	DatabaseDSN string
+	S3          S3Config
 }
 
 // LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
@@ -25,6 +26,7 @@ func LoadServer() ServerConfig {
 		Address:     getEnv(envServerAddress, defaultServerAddress),
 		LogLevel:    getEnv(envLogLevel, defaultLogLevel),
 		DatabaseDSN: os.Getenv(envDatabaseDSN),
+		S3:          LoadS3(),
 	}
 }
 
