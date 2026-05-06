@@ -24,7 +24,9 @@ func NewRouter(
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Get("/avatars/{avatar_id}", avatarHandler.GetByID)
 		r.Get("/avatars/{avatar_id}/metadata", avatarHandler.GetMetadata)
+
 		r.Get("/users/{user_id}/avatar", avatarHandler.GetCurrentByUserID)
+		r.Get("/users/{user_id}/avatars", avatarHandler.ListByUserID)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireUserID)

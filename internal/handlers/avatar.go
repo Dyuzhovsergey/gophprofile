@@ -22,6 +22,7 @@ type AvatarManager interface {
 	GetAvatarByID(ctx context.Context, avatarID string) (services.DownloadAvatarResult, error)
 	GetCurrentAvatarByUserID(ctx context.Context, userID string) (services.DownloadAvatarResult, error)
 	GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error)
+	ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
@@ -62,6 +63,12 @@ type AvatarMetadataResponse struct {
 	Thumbnails []AvatarThumbnailResponse `json:"thumbnails"`
 	CreatedAt  time.Time                 `json:"created_at"`
 	UpdatedAt  time.Time                 `json:"updated_at"`
+}
+
+// UserAvatarsResponse описывает список аватарок пользователя.
+type UserAvatarsResponse struct {
+	UserID  string                   `json:"user_id"`
+	Avatars []AvatarMetadataResponse `json:"avatars"`
 }
 
 // AvatarDimensionsResponse описывает размеры изображения.
@@ -182,6 +189,58 @@ func (h *AvatarHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, buildAvatarMetadataResponse(avatar))
+}
+
+// ListByUserID обрабатывает получение списка аватарок пользователя.
+func (h *AvatarHandler) ListByUserID(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(chi.URLParam(r, "user_id"))
+	if userID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid user id",
+			Details: "user_id is required",
+		})
+		return
+	}
+
+	avatars, err := h.avatarService.ListAvatarsByUserID(r.Context(), userID)
+	if err != nil {
+		h.handleListByUserIDError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, UserAvatarsResponse{
+		UserID:  userID,
+		Avatars: buildAvatarMetadataResponses(avatars),
+	})
+}
+
+// handleListByUserIDError преобразует ошибки получения списка аватарок в HTTP-ответы.
+func (h *AvatarHandler) handleListByUserIDError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrMissingUserID):
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid user id",
+			Details: "user_id is required",
+		})
+	default:
+		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
+			Error: "Internal server error",
+		})
+	}
+}
+
+// buildAvatarMetadataResponses преобразует список domain.Avatar в список HTTP response metadata.
+func buildAvatarMetadataResponses(avatars []domain.Avatar) []AvatarMetadataResponse {
+	if len(avatars) == 0 {
+		return []AvatarMetadataResponse{}
+	}
+
+	responses := make([]AvatarMetadataResponse, 0, len(avatars))
+	for _, avatar := range avatars {
+		responses = append(responses, buildAvatarMetadataResponse(avatar))
+	}
+
+	return responses
 }
 
 // handleGetByIDError преобразует ошибки получения аватарки в HTTP-ответы.

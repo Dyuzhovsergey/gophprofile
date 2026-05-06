@@ -20,6 +20,7 @@ type AvatarRepository interface {
 	Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error)
 	GetByID(ctx context.Context, id string) (domain.Avatar, error)
 	GetLatestByUserID(ctx context.Context, userID string) (domain.Avatar, error)
+	ListByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
 }
 
 // AvatarStorage описывает методы файлового хранилища аватарок.
@@ -213,6 +214,21 @@ func (s *AvatarService) GetCurrentAvatarByUserID(
 		Data:        data,
 		ContentType: contentType,
 	}, nil
+}
+
+// ListAvatarsByUserID возвращает список активных аватарок пользователя.
+func (s *AvatarService) ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, domain.ErrMissingUserID
+	}
+
+	avatars, err := s.repo.ListByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return avatars, nil
 }
 
 // normalizeMIMEType приводит MIME-type к единому виду.
