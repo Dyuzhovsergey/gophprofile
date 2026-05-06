@@ -558,3 +558,95 @@ func TestAvatarService_GetCurrentAvatarByUserID_NotFound(t *testing.T) {
 		t.Fatal("did not expect storage Download to be called")
 	}
 }
+
+func TestAvatarService_GetAvatarMetadata_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:        "avatar-id",
+			UserID:    "sergey",
+			FileName:  "avatar.jpg",
+			MIMEType:  "image/jpeg",
+			SizeBytes: 1024,
+			Width:     800,
+			Height:    600,
+			S3Key:     "originals/avatar-id/avatar.jpg",
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	avatar, err := service.GetAvatarMetadata(context.Background(), "avatar-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getByIDCalled {
+		t.Fatal("expected repository GetByID to be called")
+	}
+
+	if repo.getByIDInput != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", repo.getByIDInput, "avatar-id")
+	}
+
+	if avatar.ID != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", avatar.ID, "avatar-id")
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_GetAvatarMetadata_EmptyID(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarMetadata(context.Background(), "   ")
+	if !errors.Is(err, domain.ErrAvatarNotFound) {
+		t.Fatalf("expected ErrAvatarNotFound, got %v", err)
+	}
+
+	if repo.getByIDCalled {
+		t.Fatal("did not expect repository GetByID to be called")
+	}
+}
+
+func TestAvatarService_GetAvatarMetadata_NotFound(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDErr: domain.ErrAvatarNotFound,
+	}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarMetadata(context.Background(), "avatar-id")
+	if !errors.Is(err, domain.ErrAvatarNotFound) {
+		t.Fatalf("expected ErrAvatarNotFound, got %v", err)
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_GetAvatarMetadata_Deleted(t *testing.T) {
+	deletedAt := time.Now()
+
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:        "avatar-id",
+			DeletedAt: &deletedAt,
+		},
+	}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarMetadata(context.Background(), "avatar-id")
+	if !errors.Is(err, domain.ErrAvatarDeleted) {
+		t.Fatalf("expected ErrAvatarDeleted, got %v", err)
+	}
+}
