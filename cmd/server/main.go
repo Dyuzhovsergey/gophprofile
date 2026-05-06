@@ -9,11 +9,9 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
-	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
-	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
@@ -56,23 +54,8 @@ func main() {
 
 	log.Info("s3 storage client created")
 
-	router := chi.NewRouter()
-	router.Use(middleware.Recover(log))
-	router.Use(middleware.RequestLogger(log))
-
 	healthHandler := handlers.NewHealthHandler(db)
-	router.Get("/health", healthHandler.Handle)
-
-	router.Route("/api/v1", func(r chi.Router) {
-		r.Get("/avatars/{avatar_id}", avatarHandler.GetByID)
-
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.RequireUserID)
-
-			r.Post("/avatars", avatarHandler.Upload)
-		})
-	})
-
+	router := handlers.NewRouter(log, healthHandler, avatarHandler)
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           router,

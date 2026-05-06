@@ -19,6 +19,7 @@ import (
 type AvatarManager interface {
 	UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error)
 	GetAvatarByID(ctx context.Context, avatarID string) (services.DownloadAvatarResult, error)
+	GetCurrentAvatarByUserID(ctx context.Context, userID string) (services.DownloadAvatarResult, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
@@ -113,18 +114,27 @@ func (h *AvatarHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contentType := strings.TrimSpace(result.ContentType)
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	writeAvatarBinary(w, result)
+}
 
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Data)))
-	w.WriteHeader(http.StatusOK)
-
-	if _, err := w.Write(result.Data); err != nil {
+// GetCurrentByUserID обрабатывает получение текущей аватарки пользователя.
+func (h *AvatarHandler) GetCurrentByUserID(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(chi.URLParam(r, "user_id"))
+	if userID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid user id",
+			Details: "user_id is required",
+		})
 		return
 	}
+
+	result, err := h.avatarService.GetCurrentAvatarByUserID(r.Context(), userID)
+	if err != nil {
+		h.handleGetByIDError(w, err)
+		return
+	}
+
+	writeAvatarBinary(w, result)
 }
 
 // handleGetByIDError преобразует ошибки получения аватарки в HTTP-ответы.
@@ -180,6 +190,22 @@ func (h *AvatarHandler) handleUploadError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Internal server error",
 		})
+	}
+}
+
+// writeAvatarBinary записывает бинарные данные аватарки в HTTP-ответ.
+func writeAvatarBinary(w http.ResponseWriter, result services.DownloadAvatarResult) {
+	contentType := strings.TrimSpace(result.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Data)))
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := w.Write(result.Data); err != nil {
+		return
 	}
 }
 

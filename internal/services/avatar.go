@@ -19,6 +19,7 @@ const DefaultMaxUploadSizeBytes int64 = 10 * 1024 * 1024
 type AvatarRepository interface {
 	Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error)
 	GetByID(ctx context.Context, id string) (domain.Avatar, error)
+	GetLatestByUserID(ctx context.Context, userID string) (domain.Avatar, error)
 }
 
 // AvatarStorage описывает методы файлового хранилища аватарок.
@@ -147,6 +148,41 @@ func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (Dow
 	data, contentType, err := s.storage.Download(ctx, avatar.S3Key)
 	if err != nil {
 		return DownloadAvatarResult{}, fmt.Errorf("download avatar file: %w", err)
+	}
+
+	if strings.TrimSpace(contentType) == "" {
+		contentType = avatar.MIMEType
+	}
+
+	return DownloadAvatarResult{
+		Avatar:      avatar,
+		Data:        data,
+		ContentType: contentType,
+	}, nil
+}
+
+// GetCurrentAvatarByUserID получает последнюю активную аватарку пользователя.
+func (s *AvatarService) GetCurrentAvatarByUserID(
+	ctx context.Context,
+	userID string,
+) (DownloadAvatarResult, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return DownloadAvatarResult{}, domain.ErrMissingUserID
+	}
+
+	avatar, err := s.repo.GetLatestByUserID(ctx, userID)
+	if err != nil {
+		return DownloadAvatarResult{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
+	}
+
+	data, contentType, err := s.storage.Download(ctx, avatar.S3Key)
+	if err != nil {
+		return DownloadAvatarResult{}, fmt.Errorf("download current avatar file: %w", err)
 	}
 
 	if strings.TrimSpace(contentType) == "" {
