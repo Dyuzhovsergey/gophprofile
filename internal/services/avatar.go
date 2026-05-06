@@ -21,6 +21,7 @@ type AvatarRepository interface {
 	GetByID(ctx context.Context, id string) (domain.Avatar, error)
 	GetLatestByUserID(ctx context.Context, userID string) (domain.Avatar, error)
 	ListByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
+	SoftDelete(ctx context.Context, id string) (domain.Avatar, error)
 }
 
 // AvatarStorage описывает методы файлового хранилища аватарок.
@@ -229,6 +230,43 @@ func (s *AvatarService) ListAvatarsByUserID(ctx context.Context, userID string) 
 	}
 
 	return avatars, nil
+}
+
+// DeleteAvatarByID мягко удаляет аватарку по id, если она принадлежит пользователю.
+func (s *AvatarService) DeleteAvatarByID(
+	ctx context.Context,
+	avatarID string,
+	userID string,
+) (domain.Avatar, error) {
+	avatarID = strings.TrimSpace(avatarID)
+	if avatarID == "" {
+		return domain.Avatar{}, domain.ErrAvatarNotFound
+	}
+
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return domain.Avatar{}, domain.ErrMissingUserID
+	}
+
+	avatar, err := s.repo.GetByID(ctx, avatarID)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return domain.Avatar{}, domain.ErrAvatarDeleted
+	}
+
+	if !avatar.IsOwner(userID) {
+		return domain.Avatar{}, domain.ErrForbidden
+	}
+
+	deletedAvatar, err := s.repo.SoftDelete(ctx, avatarID)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	return deletedAvatar, nil
 }
 
 // normalizeMIMEType приводит MIME-type к единому виду.

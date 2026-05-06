@@ -23,6 +23,7 @@ type AvatarManager interface {
 	GetCurrentAvatarByUserID(ctx context.Context, userID string) (services.DownloadAvatarResult, error)
 	GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error)
 	ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
+	DeleteAvatarByID(ctx context.Context, avatarID string, userID string) (domain.Avatar, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
@@ -212,6 +213,59 @@ func (h *AvatarHandler) ListByUserID(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		Avatars: buildAvatarMetadataResponses(avatars),
 	})
+}
+
+// DeleteByID обрабатывает мягкое удаление аватарки по id.
+func (h *AvatarHandler) DeleteByID(w http.ResponseWriter, r *http.Request) {
+	avatarID := strings.TrimSpace(chi.URLParam(r, "avatar_id"))
+	if avatarID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid avatar id",
+			Details: "avatar_id is required",
+		})
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Missing user id",
+			Details: "Required header: X-User-ID",
+		})
+		return
+	}
+
+	_, err := h.avatarService.DeleteAvatarByID(r.Context(), avatarID, userID)
+	if err != nil {
+		h.handleDeleteByIDError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteByIDError преобразует ошибки удаления аватарки в HTTP-ответы.
+func (h *AvatarHandler) handleDeleteByIDError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
+		writeJSONError(w, http.StatusNotFound, ErrorResponse{
+			Error: "Avatar not found",
+		})
+	case errors.Is(err, domain.ErrForbidden):
+		writeJSONError(w, http.StatusForbidden, ErrorResponse{
+			Error:   "Forbidden",
+			Details: "You can only delete your own avatars",
+		})
+	case errors.Is(err, domain.ErrMissingUserID):
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Missing user id",
+			Details: "Required header: X-User-ID",
+		})
+	default:
+		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
+			Error: "Internal server error",
+		})
+	}
 }
 
 // handleListByUserIDError преобразует ошибки получения списка аватарок в HTTP-ответы.

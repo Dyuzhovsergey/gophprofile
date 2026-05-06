@@ -30,6 +30,11 @@ type fakeAvatarRepository struct {
 	listByUserIDInput   string
 	listByUserIDAvatars []domain.Avatar
 	listByUserIDErr     error
+
+	softDeleteCalled bool
+	softDeleteInput  string
+	softDeleteAvatar domain.Avatar
+	softDeleteErr    error
 }
 
 func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
@@ -80,6 +85,27 @@ func (r *fakeAvatarRepository) ListByUserID(ctx context.Context, userID string) 
 	return r.listByUserIDAvatars, nil
 }
 
+func (r *fakeAvatarRepository) SoftDelete(ctx context.Context, id string) (domain.Avatar, error) {
+	r.softDeleteCalled = true
+	r.softDeleteInput = id
+
+	if r.softDeleteErr != nil {
+		return domain.Avatar{}, r.softDeleteErr
+	}
+
+	if r.softDeleteAvatar.ID != "" {
+		return r.softDeleteAvatar, nil
+	}
+
+	deletedAt := time.Now()
+
+	return domain.Avatar{
+		ID:        id,
+		UserID:    r.getByIDAvatar.UserID,
+		DeletedAt: &deletedAt,
+	}, nil
+}
+
 type fakeAvatarStorage struct {
 	uploadCalled      bool
 	uploadKey         string
@@ -96,6 +122,11 @@ type fakeAvatarStorage struct {
 	downloadData        []byte
 	downloadContentType string
 	downloadErr         error
+
+	softDeleteCalled bool
+	softDeleteInput  string
+	softDeleteAvatar domain.Avatar
+	softDeleteErr    error
 }
 
 func (s *fakeAvatarStorage) Upload(ctx context.Context, key string, body io.Reader, contentType string) error {
@@ -754,5 +785,112 @@ func TestAvatarService_ListAvatarsByUserID_RepositoryError(t *testing.T) {
 	_, err := service.ListAvatarsByUserID(context.Background(), "sergey")
 	if !errors.Is(err, repoErr) {
 		t.Fatalf("expected repository error, got %v", err)
+	}
+}
+
+func TestAvatarService_DeleteAvatarByID_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:     "avatar-id",
+			UserID: "sergey",
+			S3Key:  "originals/avatar-id/avatar.jpg",
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	avatar, err := service.DeleteAvatarByID(context.Background(), "avatar-id", "sergey")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getByIDCalled {
+		t.Fatal("expected repository GetByID to be called")
+	}
+
+	if !repo.softDeleteCalled {
+		t.Fatal("expected repository SoftDelete to be called")
+	}
+
+	if repo.softDeleteInput != "avatar-id" {
+		t.Fatalf("unexpected soft delete id: got %q, want %q", repo.softDeleteInput, "avatar-id")
+	}
+
+	if avatar.ID != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", avatar.ID, "avatar-id")
+	}
+
+	if storage.deleteCalled {
+		t.Fatal("did not expect storage Delete to be called")
+	}
+}
+
+func TestAvatarService_DeleteAvatarByID_Forbidden(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:     "avatar-id",
+			UserID: "sergey",
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.DeleteAvatarByID(context.Background(), "avatar-id", "ivan")
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+
+	if repo.softDeleteCalled {
+		t.Fatal("did not expect repository SoftDelete to be called")
+	}
+}
+
+func TestAvatarService_DeleteAvatarByID_NotFound(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDErr: domain.ErrAvatarNotFound,
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.DeleteAvatarByID(context.Background(), "avatar-id", "sergey")
+	if !errors.Is(err, domain.ErrAvatarNotFound) {
+		t.Fatalf("expected ErrAvatarNotFound, got %v", err)
+	}
+
+	if repo.softDeleteCalled {
+		t.Fatal("did not expect repository SoftDelete to be called")
+	}
+}
+
+func TestAvatarService_DeleteAvatarByID_EmptyUserID(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.DeleteAvatarByID(context.Background(), "avatar-id", "   ")
+	if !errors.Is(err, domain.ErrMissingUserID) {
+		t.Fatalf("expected ErrMissingUserID, got %v", err)
+	}
+
+	if repo.getByIDCalled {
+		t.Fatal("did not expect repository GetByID to be called")
+	}
+}
+
+func TestAvatarService_DeleteAvatarByID_EmptyAvatarID(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.DeleteAvatarByID(context.Background(), "   ", "sergey")
+	if !errors.Is(err, domain.ErrAvatarNotFound) {
+		t.Fatalf("expected ErrAvatarNotFound, got %v", err)
+	}
+
+	if repo.getByIDCalled {
+		t.Fatal("did not expect repository GetByID to be called")
 	}
 }
