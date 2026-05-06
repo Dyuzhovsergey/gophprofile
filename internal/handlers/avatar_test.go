@@ -16,6 +16,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
+	"github.com/go-chi/chi/v5"
 )
 
 type fakeAvatarUploader struct {
@@ -24,6 +25,11 @@ type fakeAvatarUploader struct {
 	err    error
 
 	avatar domain.Avatar
+
+	getByIDCalled bool
+	getByIDInput  string
+	getByIDResult services.DownloadAvatarResult
+	getByIDErr    error
 }
 
 func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error) {
@@ -35,6 +41,20 @@ func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.Up
 	}
 
 	return u.avatar, nil
+}
+
+func (u *fakeAvatarUploader) GetAvatarByID(
+	ctx context.Context,
+	avatarID string,
+) (services.DownloadAvatarResult, error) {
+	u.getByIDCalled = true
+	u.getByIDInput = avatarID
+
+	if u.getByIDErr != nil {
+		return services.DownloadAvatarResult{}, u.getByIDErr
+	}
+
+	return u.getByIDResult, nil
 }
 
 func TestAvatarHandler_Upload_Success(t *testing.T) {
@@ -233,4 +253,86 @@ func newMultipartUploadRequest(
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	return req
+}
+
+func TestAvatarHandler_GetByID_Success(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getByIDResult: services.DownloadAvatarResult{
+			Avatar: domain.Avatar{
+				ID: "avatar-id",
+			},
+			Data:        []byte("image-data"),
+			ContentType: "image/jpeg",
+		},
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !uploader.getByIDCalled {
+		t.Fatal("expected GetAvatarByID to be called")
+	}
+
+	if uploader.getByIDInput != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", uploader.getByIDInput, "avatar-id")
+	}
+
+	if rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("unexpected content type: got %q", rec.Header().Get("Content-Type"))
+	}
+
+	if rec.Body.String() != "image-data" {
+		t.Fatalf("unexpected body: got %q, want %q", rec.Body.String(), "image-data")
+	}
+}
+
+func TestAvatarHandler_GetByID_NotFound(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getByIDErr: domain.ErrAvatarNotFound,
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestAvatarHandler_GetByID_InternalError(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getByIDErr: errors.New("unexpected error"),
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
 }

@@ -64,6 +64,8 @@ func main() {
 	router.Get("/health", healthHandler.Handle)
 
 	router.Route("/api/v1", func(r chi.Router) {
+		r.Get("/avatars/{avatar_id}", avatarHandler.GetByID)
+
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireUserID)
 

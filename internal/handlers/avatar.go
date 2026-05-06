@@ -12,27 +12,29 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
+	"github.com/go-chi/chi/v5"
 )
 
-// AvatarUploader описывает сервис загрузки аватарок.
-type AvatarUploader interface {
+// AvatarManager описывает сервис управления аватарками.
+type AvatarManager interface {
 	UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error)
+	GetAvatarByID(ctx context.Context, avatarID string) (services.DownloadAvatarResult, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
 type AvatarHandler struct {
-	uploader           AvatarUploader
+	avatarService      AvatarManager
 	maxUploadSizeBytes int64
 }
 
 // NewAvatarHandler создаёт обработчик аватарок.
-func NewAvatarHandler(uploader AvatarUploader, maxUploadSizeBytes int64) *AvatarHandler {
+func NewAvatarHandler(avatarService AvatarManager, maxUploadSizeBytes int64) *AvatarHandler {
 	if maxUploadSizeBytes <= 0 {
 		maxUploadSizeBytes = services.DefaultMaxUploadSizeBytes
 	}
 
 	return &AvatarHandler{
-		uploader:           uploader,
+		avatarService:      avatarService,
 		maxUploadSizeBytes: maxUploadSizeBytes,
 	}
 }
@@ -73,7 +75,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	avatar, err := h.uploader.UploadAvatar(r.Context(), services.UploadAvatarInput{
+	avatar, err := h.avatarService.UploadAvatar(r.Context(), services.UploadAvatarInput{
 		UserID:    userID,
 		FileName:  fileHeader.Filename,
 		MIMEType:  fileHeader.Header.Get("Content-Type"),
@@ -92,6 +94,51 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		Status:    string(avatar.ProcessingStatus),
 		CreatedAt: avatar.CreatedAt,
 	})
+}
+
+// GetByID обрабатывает получение аватарки по id.
+func (h *AvatarHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	avatarID := strings.TrimSpace(chi.URLParam(r, "avatar_id"))
+	if avatarID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid avatar id",
+			Details: "avatar_id is required",
+		})
+		return
+	}
+
+	result, err := h.avatarService.GetAvatarByID(r.Context(), avatarID)
+	if err != nil {
+		h.handleGetByIDError(w, err)
+		return
+	}
+
+	contentType := strings.TrimSpace(result.ContentType)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Data)))
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := w.Write(result.Data); err != nil {
+		return
+	}
+}
+
+// handleGetByIDError преобразует ошибки получения аватарки в HTTP-ответы.
+func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
+		writeJSONError(w, http.StatusNotFound, ErrorResponse{
+			Error: "Avatar not found",
+		})
+	default:
+		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
+			Error: "Internal server error",
+		})
+	}
 }
 
 // handleMultipartError обрабатывает ошибки чтения multipart/form-data.
