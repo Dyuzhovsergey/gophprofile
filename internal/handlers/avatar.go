@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type AvatarManager interface {
 	UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error)
 	GetAvatarByID(ctx context.Context, avatarID string) (services.DownloadAvatarResult, error)
 	GetCurrentAvatarByUserID(ctx context.Context, userID string) (services.DownloadAvatarResult, error)
+	GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
@@ -47,6 +49,31 @@ type UploadAvatarResponse struct {
 	URL       string    `json:"url"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// AvatarMetadataResponse описывает ответ с метаданными аватарки.
+type AvatarMetadataResponse struct {
+	ID         string                    `json:"id"`
+	UserID     string                    `json:"user_id"`
+	FileName   string                    `json:"file_name"`
+	MIMEType   string                    `json:"mime_type"`
+	Size       int64                     `json:"size"`
+	Dimensions AvatarDimensionsResponse  `json:"dimensions"`
+	Thumbnails []AvatarThumbnailResponse `json:"thumbnails"`
+	CreatedAt  time.Time                 `json:"created_at"`
+	UpdatedAt  time.Time                 `json:"updated_at"`
+}
+
+// AvatarDimensionsResponse описывает размеры изображения.
+type AvatarDimensionsResponse struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// AvatarThumbnailResponse описывает миниатюру изображения.
+type AvatarThumbnailResponse struct {
+	Size string `json:"size"`
+	URL  string `json:"url"`
 }
 
 // ErrorResponse описывает JSON-ответ с ошибкой.
@@ -137,6 +164,26 @@ func (h *AvatarHandler) GetCurrentByUserID(w http.ResponseWriter, r *http.Reques
 	writeAvatarBinary(w, result)
 }
 
+// GetMetadata обрабатывает получение метаданных аватарки.
+func (h *AvatarHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
+	avatarID := strings.TrimSpace(chi.URLParam(r, "avatar_id"))
+	if avatarID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid avatar id",
+			Details: "avatar_id is required",
+		})
+		return
+	}
+
+	avatar, err := h.avatarService.GetAvatarMetadata(r.Context(), avatarID)
+	if err != nil {
+		h.handleGetByIDError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, buildAvatarMetadataResponse(avatar))
+}
+
 // handleGetByIDError преобразует ошибки получения аватарки в HTTP-ответы.
 func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
 	switch {
@@ -191,6 +238,52 @@ func (h *AvatarHandler) handleUploadError(w http.ResponseWriter, err error) {
 			Error: "Internal server error",
 		})
 	}
+}
+
+// buildAvatarMetadataResponse преобразует domain.Avatar в HTTP response metadata.
+func buildAvatarMetadataResponse(avatar domain.Avatar) AvatarMetadataResponse {
+	return AvatarMetadataResponse{
+		ID:       avatar.ID,
+		UserID:   avatar.UserID,
+		FileName: avatar.FileName,
+		MIMEType: avatar.MIMEType,
+		Size:     avatar.SizeBytes,
+		Dimensions: AvatarDimensionsResponse{
+			Width:  avatar.Width,
+			Height: avatar.Height,
+		},
+		Thumbnails: buildAvatarThumbnailResponses(avatar),
+		CreatedAt:  avatar.CreatedAt,
+		UpdatedAt:  avatar.UpdatedAt,
+	}
+}
+
+// buildAvatarThumbnailResponses формирует список thumbnails для ответа metadata.
+func buildAvatarThumbnailResponses(avatar domain.Avatar) []AvatarThumbnailResponse {
+	if len(avatar.ThumbnailS3Keys) == 0 {
+		return []AvatarThumbnailResponse{}
+	}
+
+	sizes := make([]string, 0, len(avatar.ThumbnailS3Keys))
+	for size, key := range avatar.ThumbnailS3Keys {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+
+		sizes = append(sizes, string(size))
+	}
+
+	sort.Strings(sizes)
+
+	thumbnails := make([]AvatarThumbnailResponse, 0, len(sizes))
+	for _, size := range sizes {
+		thumbnails = append(thumbnails, AvatarThumbnailResponse{
+			Size: size,
+			URL:  fmt.Sprintf("/api/v1/avatars/%s?size=%s", avatar.ID, size),
+		})
+	}
+
+	return thumbnails
 }
 
 // writeAvatarBinary записывает бинарные данные аватарки в HTTP-ответ.
