@@ -20,6 +20,11 @@ type fakeAvatarRepository struct {
 	getByIDInput  string
 	getByIDAvatar domain.Avatar
 	getByIDErr    error
+
+	getLatestByUserIDCalled bool
+	getLatestByUserIDInput  string
+	getLatestByUserIDAvatar domain.Avatar
+	getLatestByUserIDErr    error
 }
 
 func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
@@ -46,6 +51,17 @@ func (r *fakeAvatarRepository) GetByID(ctx context.Context, id string) (domain.A
 	}
 
 	return r.getByIDAvatar, nil
+}
+
+func (r *fakeAvatarRepository) GetLatestByUserID(ctx context.Context, userID string) (domain.Avatar, error) {
+	r.getLatestByUserIDCalled = true
+	r.getLatestByUserIDInput = userID
+
+	if r.getLatestByUserIDErr != nil {
+		return domain.Avatar{}, r.getLatestByUserIDErr
+	}
+
+	return r.getLatestByUserIDAvatar, nil
 }
 
 type fakeAvatarStorage struct {
@@ -455,5 +471,90 @@ func TestAvatarService_GetAvatarByID_UsesAvatarMIMETypeWhenStorageContentTypeEmp
 
 	if result.ContentType != "image/png" {
 		t.Fatalf("unexpected content type: got %q, want %q", result.ContentType, "image/png")
+	}
+}
+
+func TestAvatarService_GetCurrentAvatarByUserID_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getLatestByUserIDAvatar: domain.Avatar{
+			ID:       "avatar-id",
+			UserID:   "sergey",
+			MIMEType: "image/jpeg",
+			S3Key:    "originals/avatar-id/avatar.jpg",
+		},
+	}
+
+	storage := &fakeAvatarStorage{
+		downloadData:        []byte("image-data"),
+		downloadContentType: "image/jpeg",
+	}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	result, err := service.GetCurrentAvatarByUserID(context.Background(), "sergey")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getLatestByUserIDCalled {
+		t.Fatal("expected repository GetLatestByUserID to be called")
+	}
+
+	if repo.getLatestByUserIDInput != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", repo.getLatestByUserIDInput, "sergey")
+	}
+
+	if !storage.downloadCalled {
+		t.Fatal("expected storage Download to be called")
+	}
+
+	if storage.downloadKey != "originals/avatar-id/avatar.jpg" {
+		t.Fatalf("unexpected download key: got %q", storage.downloadKey)
+	}
+
+	if string(result.Data) != "image-data" {
+		t.Fatalf("unexpected data: got %q, want %q", string(result.Data), "image-data")
+	}
+
+	if result.ContentType != "image/jpeg" {
+		t.Fatalf("unexpected content type: got %q, want %q", result.ContentType, "image/jpeg")
+	}
+}
+
+func TestAvatarService_GetCurrentAvatarByUserID_EmptyUserID(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetCurrentAvatarByUserID(context.Background(), "   ")
+	if !errors.Is(err, domain.ErrMissingUserID) {
+		t.Fatalf("expected ErrMissingUserID, got %v", err)
+	}
+
+	if repo.getLatestByUserIDCalled {
+		t.Fatal("did not expect repository GetLatestByUserID to be called")
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_GetCurrentAvatarByUserID_NotFound(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getLatestByUserIDErr: domain.ErrAvatarNotFound,
+	}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetCurrentAvatarByUserID(context.Background(), "sergey")
+	if !errors.Is(err, domain.ErrAvatarNotFound) {
+		t.Fatalf("expected ErrAvatarNotFound, got %v", err)
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
 	}
 }
