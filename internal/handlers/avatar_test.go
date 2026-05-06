@@ -40,6 +40,11 @@ type fakeAvatarUploader struct {
 	getMetadataInput  string
 	getMetadataAvatar domain.Avatar
 	getMetadataErr    error
+
+	listByUserIDCalled  bool
+	listByUserIDInput   string
+	listByUserIDAvatars []domain.Avatar
+	listByUserIDErr     error
 }
 
 func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error) {
@@ -93,6 +98,20 @@ func (u *fakeAvatarUploader) GetAvatarMetadata(
 	}
 
 	return u.getMetadataAvatar, nil
+}
+
+func (u *fakeAvatarUploader) ListAvatarsByUserID(
+	ctx context.Context,
+	userID string,
+) ([]domain.Avatar, error) {
+	u.listByUserIDCalled = true
+	u.listByUserIDInput = userID
+
+	if u.listByUserIDErr != nil {
+		return nil, u.listByUserIDErr
+	}
+
+	return u.listByUserIDAvatars, nil
 }
 
 func TestAvatarHandler_Upload_Success(t *testing.T) {
@@ -571,6 +590,129 @@ func TestAvatarHandler_GetMetadata_InternalError(t *testing.T) {
 	router.Get("/api/v1/avatars/{avatar_id}/metadata", handler.GetMetadata)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id/metadata", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAvatarHandler_ListByUserID_Success(t *testing.T) {
+	createdAt := time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
+
+	uploader := &fakeAvatarUploader{
+		listByUserIDAvatars: []domain.Avatar{
+			{
+				ID:        "avatar-1",
+				UserID:    "sergey",
+				FileName:  "avatar-1.jpg",
+				MIMEType:  "image/jpeg",
+				SizeBytes: 1024,
+				Width:     800,
+				Height:    600,
+				CreatedAt: createdAt,
+				UpdatedAt: createdAt,
+			},
+			{
+				ID:        "avatar-2",
+				UserID:    "sergey",
+				FileName:  "avatar-2.jpg",
+				MIMEType:  "image/jpeg",
+				SizeBytes: 2048,
+				Width:     1024,
+				Height:    768,
+				CreatedAt: createdAt,
+				UpdatedAt: createdAt,
+			},
+		},
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/users/{user_id}/avatars", handler.ListByUserID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/sergey/avatars", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !uploader.listByUserIDCalled {
+		t.Fatal("expected ListAvatarsByUserID to be called")
+	}
+
+	if uploader.listByUserIDInput != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", uploader.listByUserIDInput, "sergey")
+	}
+
+	var response UserAvatarsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if response.UserID != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", response.UserID, "sergey")
+	}
+
+	if len(response.Avatars) != 2 {
+		t.Fatalf("unexpected avatars count: got %d, want %d", len(response.Avatars), 2)
+	}
+
+	if response.Avatars[0].ID != "avatar-1" {
+		t.Fatalf("unexpected first avatar id: got %q, want %q", response.Avatars[0].ID, "avatar-1")
+	}
+}
+
+func TestAvatarHandler_ListByUserID_EmptyList(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		listByUserIDAvatars: []domain.Avatar{},
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/users/{user_id}/avatars", handler.ListByUserID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/sergey/avatars", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var response UserAvatarsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if response.UserID != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", response.UserID, "sergey")
+	}
+
+	if len(response.Avatars) != 0 {
+		t.Fatalf("unexpected avatars count: got %d, want %d", len(response.Avatars), 0)
+	}
+}
+
+func TestAvatarHandler_ListByUserID_InternalError(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		listByUserIDErr: errors.New("unexpected error"),
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/users/{user_id}/avatars", handler.ListByUserID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/sergey/avatars", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

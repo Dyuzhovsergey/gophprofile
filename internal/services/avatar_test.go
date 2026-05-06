@@ -25,6 +25,11 @@ type fakeAvatarRepository struct {
 	getLatestByUserIDInput  string
 	getLatestByUserIDAvatar domain.Avatar
 	getLatestByUserIDErr    error
+
+	listByUserIDCalled  bool
+	listByUserIDInput   string
+	listByUserIDAvatars []domain.Avatar
+	listByUserIDErr     error
 }
 
 func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
@@ -62,6 +67,17 @@ func (r *fakeAvatarRepository) GetLatestByUserID(ctx context.Context, userID str
 	}
 
 	return r.getLatestByUserIDAvatar, nil
+}
+
+func (r *fakeAvatarRepository) ListByUserID(ctx context.Context, userID string) ([]domain.Avatar, error) {
+	r.listByUserIDCalled = true
+	r.listByUserIDInput = userID
+
+	if r.listByUserIDErr != nil {
+		return nil, r.listByUserIDErr
+	}
+
+	return r.listByUserIDAvatars, nil
 }
 
 type fakeAvatarStorage struct {
@@ -648,5 +664,95 @@ func TestAvatarService_GetAvatarMetadata_Deleted(t *testing.T) {
 	_, err := service.GetAvatarMetadata(context.Background(), "avatar-id")
 	if !errors.Is(err, domain.ErrAvatarDeleted) {
 		t.Fatalf("expected ErrAvatarDeleted, got %v", err)
+	}
+}
+
+func TestAvatarService_ListAvatarsByUserID_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		listByUserIDAvatars: []domain.Avatar{
+			{
+				ID:       "avatar-1",
+				UserID:   "sergey",
+				FileName: "avatar-1.jpg",
+			},
+			{
+				ID:       "avatar-2",
+				UserID:   "sergey",
+				FileName: "avatar-2.jpg",
+			},
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	avatars, err := service.ListAvatarsByUserID(context.Background(), "sergey")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.listByUserIDCalled {
+		t.Fatal("expected repository ListByUserID to be called")
+	}
+
+	if repo.listByUserIDInput != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", repo.listByUserIDInput, "sergey")
+	}
+
+	if len(avatars) != 2 {
+		t.Fatalf("unexpected avatars count: got %d, want %d", len(avatars), 2)
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_ListAvatarsByUserID_EmptyUserID(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.ListAvatarsByUserID(context.Background(), "   ")
+	if !errors.Is(err, domain.ErrMissingUserID) {
+		t.Fatalf("expected ErrMissingUserID, got %v", err)
+	}
+
+	if repo.listByUserIDCalled {
+		t.Fatal("did not expect repository ListByUserID to be called")
+	}
+}
+
+func TestAvatarService_ListAvatarsByUserID_EmptyList(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		listByUserIDAvatars: []domain.Avatar{},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	avatars, err := service.ListAvatarsByUserID(context.Background(), "sergey")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(avatars) != 0 {
+		t.Fatalf("unexpected avatars count: got %d, want %d", len(avatars), 0)
+	}
+}
+
+func TestAvatarService_ListAvatarsByUserID_RepositoryError(t *testing.T) {
+	repoErr := errors.New("repository failed")
+
+	repo := &fakeAvatarRepository{
+		listByUserIDErr: repoErr,
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.ListAvatarsByUserID(context.Background(), "sergey")
+	if !errors.Is(err, repoErr) {
+		t.Fatalf("expected repository error, got %v", err)
 	}
 }
