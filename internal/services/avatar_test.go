@@ -15,6 +15,11 @@ type fakeAvatarRepository struct {
 	createCalled bool
 	createInput  domain.Avatar
 	createErr    error
+
+	getByIDCalled bool
+	getByIDInput  string
+	getByIDAvatar domain.Avatar
+	getByIDErr    error
 }
 
 func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
@@ -32,6 +37,17 @@ func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar)
 	return avatar, nil
 }
 
+func (r *fakeAvatarRepository) GetByID(ctx context.Context, id string) (domain.Avatar, error) {
+	r.getByIDCalled = true
+	r.getByIDInput = id
+
+	if r.getByIDErr != nil {
+		return domain.Avatar{}, r.getByIDErr
+	}
+
+	return r.getByIDAvatar, nil
+}
+
 type fakeAvatarStorage struct {
 	uploadCalled      bool
 	uploadKey         string
@@ -42,6 +58,12 @@ type fakeAvatarStorage struct {
 	deleteCalled bool
 	deleteKey    string
 	deleteErr    error
+
+	downloadCalled      bool
+	downloadKey         string
+	downloadData        []byte
+	downloadContentType string
+	downloadErr         error
 }
 
 func (s *fakeAvatarStorage) Upload(ctx context.Context, key string, body io.Reader, contentType string) error {
@@ -57,6 +79,17 @@ func (s *fakeAvatarStorage) Upload(ctx context.Context, key string, body io.Read
 	s.uploadBody = data
 
 	return s.uploadErr
+}
+
+func (s *fakeAvatarStorage) Download(ctx context.Context, key string) ([]byte, string, error) {
+	s.downloadCalled = true
+	s.downloadKey = key
+
+	if s.downloadErr != nil {
+		return nil, "", s.downloadErr
+	}
+
+	return s.downloadData, s.downloadContentType, nil
 }
 
 func (s *fakeAvatarStorage) Delete(ctx context.Context, key string) error {
