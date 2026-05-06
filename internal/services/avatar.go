@@ -18,11 +18,13 @@ const DefaultMaxUploadSizeBytes int64 = 10 * 1024 * 1024
 // AvatarRepository описывает методы хранилища метаданных аватарок.
 type AvatarRepository interface {
 	Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error)
+	GetByID(ctx context.Context, id string) (domain.Avatar, error)
 }
 
 // AvatarStorage описывает методы файлового хранилища аватарок.
 type AvatarStorage interface {
 	Upload(ctx context.Context, key string, body io.Reader, contentType string) error
+	Download(ctx context.Context, key string) ([]byte, string, error)
 	Delete(ctx context.Context, key string) error
 }
 
@@ -40,6 +42,13 @@ type UploadAvatarInput struct {
 	MIMEType  string
 	SizeBytes int64
 	Body      io.Reader
+}
+
+// DownloadAvatarResult содержит данные скачанной аватарки.
+type DownloadAvatarResult struct {
+	Avatar      domain.Avatar
+	Data        []byte
+	ContentType string
 }
 
 // NewAvatarService создаёт сервис управления аватарками.
@@ -117,6 +126,38 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 	}
 
 	return createdAvatar, nil
+}
+
+// GetAvatarByID получает аватарку по id и скачивает файл из storage.
+func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (DownloadAvatarResult, error) {
+	avatarID = strings.TrimSpace(avatarID)
+	if avatarID == "" {
+		return DownloadAvatarResult{}, domain.ErrAvatarNotFound
+	}
+
+	avatar, err := s.repo.GetByID(ctx, avatarID)
+	if err != nil {
+		return DownloadAvatarResult{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
+	}
+
+	data, contentType, err := s.storage.Download(ctx, avatar.S3Key)
+	if err != nil {
+		return DownloadAvatarResult{}, fmt.Errorf("download avatar file: %w", err)
+	}
+
+	if strings.TrimSpace(contentType) == "" {
+		contentType = avatar.MIMEType
+	}
+
+	return DownloadAvatarResult{
+		Avatar:      avatar,
+		Data:        data,
+		ContentType: contentType,
+	}, nil
 }
 
 // normalizeMIMEType приводит MIME-type к единому виду.
