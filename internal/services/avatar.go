@@ -161,6 +161,25 @@ func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (Dow
 	}, nil
 }
 
+// GetAvatarMetadata получает метаданные аватарки по id без скачивания файла из storage.
+func (s *AvatarService) GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error) {
+	avatarID = strings.TrimSpace(avatarID)
+	if avatarID == "" {
+		return domain.Avatar{}, domain.ErrAvatarNotFound
+	}
+
+	avatar, err := s.repo.GetByID(ctx, avatarID)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return domain.Avatar{}, domain.ErrAvatarDeleted
+	}
+
+	return avatar, nil
+}
+
 // GetCurrentAvatarByUserID получает последнюю активную аватарку пользователя.
 func (s *AvatarService) GetCurrentAvatarByUserID(
 	ctx context.Context,
