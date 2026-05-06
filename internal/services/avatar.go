@@ -146,5 +146,5 @@ func normalizeFileName(fileName string) string {
 
 // buildOriginalS3Key строит ключ оригинального файла в S3.
 func buildOriginalS3Key(avatarID string, fileName string) string {
-	return fmt.Sprintf("avatars/%s/original/%s", avatarID, fileName)
+	return fmt.Sprintf("/original/%s/%s", avatarID, fileName)
 }
