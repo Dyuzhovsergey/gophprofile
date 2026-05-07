@@ -37,6 +37,22 @@ type fakeAvatarRepository struct {
 	softDeleteErr    error
 }
 
+type fakeAvatarEventPublisher struct {
+	called bool
+	event  domain.AvatarUploadEvent
+	err    error
+}
+
+func (p *fakeAvatarEventPublisher) PublishAvatarUploaded(
+	ctx context.Context,
+	event domain.AvatarUploadEvent,
+) error {
+	p.called = true
+	p.event = event
+
+	return p.err
+}
+
 func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
 	r.createCalled = true
 	r.createInput = avatar
@@ -1006,5 +1022,81 @@ func TestAvatarService_DeleteCurrentAvatarByUserID_NotFound(t *testing.T) {
 
 	if repo.softDeleteCalled {
 		t.Fatal("did not expect repository SoftDelete to be called")
+	}
+}
+
+func TestAvatarService_UploadAvatar_PublishesUploadEvent(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	publisher := &fakeAvatarEventPublisher{}
+
+	service := NewAvatarServiceWithPublisher(
+		repo,
+		storage,
+		publisher,
+		DefaultMaxUploadSizeBytes,
+	)
+
+	avatar, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.jpg",
+		MIMEType:  "image/jpeg",
+		SizeBytes: 4,
+		Body:      bytes.NewBufferString("data"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !publisher.called {
+		t.Fatal("expected publisher to be called")
+	}
+
+	if publisher.event.AvatarID != avatar.ID {
+		t.Fatalf("unexpected event avatar id: got %q, want %q", publisher.event.AvatarID, avatar.ID)
+	}
+
+	if publisher.event.UserID != "sergey" {
+		t.Fatalf("unexpected event user id: got %q, want %q", publisher.event.UserID, "sergey")
+	}
+
+	if publisher.event.S3Key != avatar.S3Key {
+		t.Fatalf("unexpected event s3 key: got %q, want %q", publisher.event.S3Key, avatar.S3Key)
+	}
+}
+
+func TestAvatarService_UploadAvatar_PublisherError(t *testing.T) {
+	publisherErr := errors.New("publish failed")
+
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	publisher := &fakeAvatarEventPublisher{
+		err: publisherErr,
+	}
+
+	service := NewAvatarServiceWithPublisher(
+		repo,
+		storage,
+		publisher,
+		DefaultMaxUploadSizeBytes,
+	)
+
+	_, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.jpg",
+		MIMEType:  "image/jpeg",
+		SizeBytes: 4,
+		Body:      bytes.NewBufferString("data"),
+	})
+	if !errors.Is(err, publisherErr) {
+		t.Fatalf("expected publisher error, got %v", err)
+	}
+
+	if !publisher.called {
+		t.Fatal("expected publisher to be called")
+	}
+
+	if storage.deleteCalled {
+		t.Fatal("did not expect storage cleanup after publisher error")
 	}
 }

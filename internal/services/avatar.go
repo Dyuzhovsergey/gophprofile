@@ -31,10 +31,24 @@ type AvatarStorage interface {
 	Delete(ctx context.Context, key string) error
 }
 
+// AvatarEventPublisher описывает публикацию событий аватарок.
+type AvatarEventPublisher interface {
+	PublishAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) error
+}
+
+// NoopAvatarEventPublisher используется, когда публикация событий ещё не подключена.
+type NoopAvatarEventPublisher struct{}
+
+// PublishAvatarUploaded ничего не делает и всегда возвращает nil.
+func (NoopAvatarEventPublisher) PublishAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) error {
+	return nil
+}
+
 // AvatarService содержит бизнес-логику управления аватарками.
 type AvatarService struct {
 	repo               AvatarRepository
 	storage            AvatarStorage
+	eventPublisher     AvatarEventPublisher
 	maxUploadSizeBytes int64
 }
 
@@ -60,13 +74,33 @@ func NewAvatarService(
 	storage AvatarStorage,
 	maxUploadSizeBytes int64,
 ) *AvatarService {
+	return NewAvatarServiceWithPublisher(
+		repo,
+		storage,
+		NoopAvatarEventPublisher{},
+		maxUploadSizeBytes,
+	)
+}
+
+// NewAvatarServiceWithPublisher создаёт сервис управления аватарками с publisher-ом событий.
+func NewAvatarServiceWithPublisher(
+	repo AvatarRepository,
+	storage AvatarStorage,
+	eventPublisher AvatarEventPublisher,
+	maxUploadSizeBytes int64,
+) *AvatarService {
 	if maxUploadSizeBytes <= 0 {
 		maxUploadSizeBytes = DefaultMaxUploadSizeBytes
+	}
+
+	if eventPublisher == nil {
+		eventPublisher = NoopAvatarEventPublisher{}
 	}
 
 	return &AvatarService{
 		repo:               repo,
 		storage:            storage,
+		eventPublisher:     eventPublisher,
 		maxUploadSizeBytes: maxUploadSizeBytes,
 	}
 }
@@ -126,6 +160,16 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 		}
 
 		return domain.Avatar{}, fmt.Errorf("create avatar metadata: %w", err)
+	}
+
+	event := domain.AvatarUploadEvent{
+		AvatarID: createdAvatar.ID,
+		UserID:   createdAvatar.UserID,
+		S3Key:    createdAvatar.S3Key,
+	}
+
+	if err := s.eventPublisher.PublishAvatarUploaded(ctx, event); err != nil {
+		return domain.Avatar{}, fmt.Errorf("publish avatar uploaded event: %w", err)
 	}
 
 	return createdAvatar, nil

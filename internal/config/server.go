@@ -24,6 +24,7 @@ type ServerConfig struct {
 	DatabaseDSN        string
 	MaxUploadSizeBytes int64
 	S3                 S3Config
+	RabbitMQ           RabbitMQConfig
 }
 
 // LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
@@ -34,6 +35,7 @@ func LoadServer() ServerConfig {
 		DatabaseDSN:        os.Getenv(envDatabaseDSN),
 		MaxUploadSizeBytes: getInt64Env(envMaxUploadSizeBytes, defaultMaxUploadSizeBytes),
 		S3:                 LoadS3(),
+		RabbitMQ:           LoadRabbitMQ(),
 	}
 }
 

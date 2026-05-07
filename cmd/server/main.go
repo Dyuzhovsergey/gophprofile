@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Dyuzhovsergey/gophprofile/internal/broker/rabbitmq"
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
@@ -41,9 +42,22 @@ func main() {
 		log.Fatal("failed to create s3 storage client", zap.Error(err))
 	}
 
-	avatarService := services.NewAvatarService(
+	avatarEventPublisher, err := rabbitmq.NewPublisher(cfg.RabbitMQ)
+	if err != nil {
+		log.Fatal("failed to create rabbitmq publisher", zap.Error(err))
+	}
+	defer func() {
+		if err := avatarEventPublisher.Close(); err != nil {
+			log.Error("failed to close rabbitmq publisher", zap.Error(err))
+		}
+	}()
+
+	log.Info("rabbitmq publisher created")
+
+	avatarService := services.NewAvatarServiceWithPublisher(
 		avatarRepository,
 		avatarStorage,
+		avatarEventPublisher,
 		cfg.MaxUploadSizeBytes,
 	)
 
