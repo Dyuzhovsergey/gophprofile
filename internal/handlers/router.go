@@ -33,6 +33,7 @@ func NewRouter(
 
 			r.Post("/avatars", avatarHandler.Upload)
 			r.Delete("/avatars/{avatar_id}", avatarHandler.DeleteByID)
+			r.Delete("/users/{user_id}/avatar", avatarHandler.DeleteCurrentByUserID)
 		})
 	})
 
