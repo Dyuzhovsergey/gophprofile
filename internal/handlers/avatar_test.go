@@ -51,6 +51,16 @@ type fakeAvatarUploader struct {
 	deleteUserID   string
 	deleteAvatar   domain.Avatar
 	deleteErr      error
+
+	getLatestByUserIDCalled bool
+	getLatestByUserIDInput  string
+	getLatestByUserIDAvatar domain.Avatar
+	getLatestByUserIDErr    error
+
+	softDeleteCalled bool
+	softDeleteInput  string
+	softDeleteAvatar domain.Avatar
+	softDeleteErr    error
 }
 
 func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error) {
