@@ -269,6 +269,47 @@ func (s *AvatarService) DeleteAvatarByID(
 	return deletedAvatar, nil
 }
 
+// DeleteCurrentAvatarByUserID мягко удаляет последнюю активную аватарку пользователя.
+func (s *AvatarService) DeleteCurrentAvatarByUserID(
+	ctx context.Context,
+	userID string,
+	actorUserID string,
+) (domain.Avatar, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return domain.Avatar{}, domain.ErrMissingUserID
+	}
+
+	actorUserID = strings.TrimSpace(actorUserID)
+	if actorUserID == "" {
+		return domain.Avatar{}, domain.ErrMissingUserID
+	}
+
+	if userID != actorUserID {
+		return domain.Avatar{}, domain.ErrForbidden
+	}
+
+	avatar, err := s.repo.GetLatestByUserID(ctx, userID)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return domain.Avatar{}, domain.ErrAvatarDeleted
+	}
+
+	if !avatar.IsOwner(actorUserID) {
+		return domain.Avatar{}, domain.ErrForbidden
+	}
+
+	deletedAvatar, err := s.repo.SoftDelete(ctx, avatar.ID)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	return deletedAvatar, nil
+}
+
 // normalizeMIMEType приводит MIME-type к единому виду.
 func normalizeMIMEType(mimeType string) string {
 	return strings.ToLower(strings.TrimSpace(mimeType))
