@@ -29,6 +29,5 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		zap.String("user_id", event.UserID),
 		zap.String("s3_key", event.S3Key),
 	)
-
 	return nil
 }
