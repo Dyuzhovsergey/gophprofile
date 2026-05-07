@@ -24,6 +24,7 @@ type AvatarManager interface {
 	GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error)
 	ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
 	DeleteAvatarByID(ctx context.Context, avatarID string, userID string) (domain.Avatar, error)
+	DeleteCurrentAvatarByUserID(ctx context.Context, userID string, actorUserID string) (domain.Avatar, error)
 }
 
 // AvatarHandler содержит HTTP-обработчики для работы с аватарками.
@@ -236,6 +237,35 @@ func (h *AvatarHandler) DeleteByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.avatarService.DeleteAvatarByID(r.Context(), avatarID, userID)
+	if err != nil {
+		h.handleDeleteByIDError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteCurrentByUserID обрабатывает мягкое удаление текущей аватарки пользователя.
+func (h *AvatarHandler) DeleteCurrentByUserID(w http.ResponseWriter, r *http.Request) {
+	userID := strings.TrimSpace(chi.URLParam(r, "user_id"))
+	if userID == "" {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid user id",
+			Details: "user_id is required",
+		})
+		return
+	}
+
+	actorUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Missing user id",
+			Details: "Required header: X-User-ID",
+		})
+		return
+	}
+
+	_, err := h.avatarService.DeleteCurrentAvatarByUserID(r.Context(), userID, actorUserID)
 	if err != nil {
 		h.handleDeleteByIDError(w, err)
 		return
