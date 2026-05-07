@@ -52,15 +52,11 @@ type fakeAvatarUploader struct {
 	deleteAvatar   domain.Avatar
 	deleteErr      error
 
-	getLatestByUserIDCalled bool
-	getLatestByUserIDInput  string
-	getLatestByUserIDAvatar domain.Avatar
-	getLatestByUserIDErr    error
-
-	softDeleteCalled bool
-	softDeleteInput  string
-	softDeleteAvatar domain.Avatar
-	softDeleteErr    error
+	deleteCurrentCalled      bool
+	deleteCurrentUserID      string
+	deleteCurrentActorUserID string
+	deleteCurrentAvatar      domain.Avatar
+	deleteCurrentErr         error
 }
 
 func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error) {
@@ -144,6 +140,22 @@ func (u *fakeAvatarUploader) DeleteAvatarByID(
 	}
 
 	return u.deleteAvatar, nil
+}
+
+func (u *fakeAvatarUploader) DeleteCurrentAvatarByUserID(
+	ctx context.Context,
+	userID string,
+	actorUserID string,
+) (domain.Avatar, error) {
+	u.deleteCurrentCalled = true
+	u.deleteCurrentUserID = userID
+	u.deleteCurrentActorUserID = actorUserID
+
+	if u.deleteCurrentErr != nil {
+		return domain.Avatar{}, u.deleteCurrentErr
+	}
+
+	return u.deleteCurrentAvatar, nil
 }
 
 func TestAvatarHandler_Upload_Success(t *testing.T) {
@@ -864,6 +876,145 @@ func TestAvatarHandler_DeleteByID_InternalError(t *testing.T) {
 	router.With(middleware.RequireUserID).Delete("/api/v1/avatars/{avatar_id}", handler.DeleteByID)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/avatar-id", nil)
+	req.Header.Set("X-User-ID", "sergey")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAvatarHandler_DeleteCurrentByUserID_Success(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		deleteCurrentAvatar: domain.Avatar{
+			ID:     "avatar-id",
+			UserID: "sergey",
+		},
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.With(middleware.RequireUserID).Delete(
+		"/api/v1/users/{user_id}/avatar",
+		handler.DeleteCurrentByUserID,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/sergey/avatar", nil)
+	req.Header.Set("X-User-ID", "sergey")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusNoContent)
+	}
+
+	if !uploader.deleteCurrentCalled {
+		t.Fatal("expected DeleteCurrentAvatarByUserID to be called")
+	}
+
+	if uploader.deleteCurrentUserID != "sergey" {
+		t.Fatalf("unexpected user id: got %q, want %q", uploader.deleteCurrentUserID, "sergey")
+	}
+
+	if uploader.deleteCurrentActorUserID != "sergey" {
+		t.Fatalf(
+			"unexpected actor user id: got %q, want %q",
+			uploader.deleteCurrentActorUserID,
+			"sergey",
+		)
+	}
+}
+
+func TestAvatarHandler_DeleteCurrentByUserID_MissingUserID(t *testing.T) {
+	uploader := &fakeAvatarUploader{}
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.With(middleware.RequireUserID).Delete(
+		"/api/v1/users/{user_id}/avatar",
+		handler.DeleteCurrentByUserID,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/sergey/avatar", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	if uploader.deleteCurrentCalled {
+		t.Fatal("did not expect DeleteCurrentAvatarByUserID to be called")
+	}
+}
+
+func TestAvatarHandler_DeleteCurrentByUserID_Forbidden(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		deleteCurrentErr: domain.ErrForbidden,
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.With(middleware.RequireUserID).Delete(
+		"/api/v1/users/{user_id}/avatar",
+		handler.DeleteCurrentByUserID,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/sergey/avatar", nil)
+	req.Header.Set("X-User-ID", "ivan")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestAvatarHandler_DeleteCurrentByUserID_NotFound(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		deleteCurrentErr: domain.ErrAvatarNotFound,
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.With(middleware.RequireUserID).Delete(
+		"/api/v1/users/{user_id}/avatar",
+		handler.DeleteCurrentByUserID,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/sergey/avatar", nil)
+	req.Header.Set("X-User-ID", "sergey")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestAvatarHandler_DeleteCurrentByUserID_InternalError(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		deleteCurrentErr: errors.New("unexpected error"),
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.With(middleware.RequireUserID).Delete(
+		"/api/v1/users/{user_id}/avatar",
+		handler.DeleteCurrentByUserID,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/sergey/avatar", nil)
 	req.Header.Set("X-User-ID", "sergey")
 	rec := httptest.NewRecorder()
 
