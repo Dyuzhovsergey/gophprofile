@@ -207,6 +207,51 @@ func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (Dow
 	}, nil
 }
 
+// GetAvatarThumbnailByID получает миниатюру аватарки по id и размеру.
+func (s *AvatarService) GetAvatarThumbnailByID(
+	ctx context.Context,
+	avatarID string,
+	size domain.ThumbnailSize,
+) (DownloadAvatarResult, error) {
+	avatarID = strings.TrimSpace(avatarID)
+	if avatarID == "" {
+		return DownloadAvatarResult{}, domain.ErrAvatarNotFound
+	}
+
+	if !size.IsValid() || size == domain.ThumbnailSizeOriginal {
+		return DownloadAvatarResult{}, domain.ErrInvalidThumbnailSize
+	}
+
+	avatar, err := s.repo.GetByID(ctx, avatarID)
+	if err != nil {
+		return DownloadAvatarResult{}, err
+	}
+
+	if avatar.IsDeleted() {
+		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
+	}
+
+	thumbnailKey := strings.TrimSpace(avatar.ThumbnailS3Keys[size])
+	if thumbnailKey == "" {
+		return DownloadAvatarResult{}, domain.ErrThumbnailNotFound
+	}
+
+	data, contentType, err := s.storage.Download(ctx, thumbnailKey)
+	if err != nil {
+		return DownloadAvatarResult{}, fmt.Errorf("download avatar thumbnail: %w", err)
+	}
+
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "image/jpeg"
+	}
+
+	return DownloadAvatarResult{
+		Avatar:      avatar,
+		Data:        data,
+		ContentType: contentType,
+	}, nil
+}
+
 // GetAvatarMetadata получает метаданные аватарки по id без скачивания файла из storage.
 func (s *AvatarService) GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error) {
 	avatarID = strings.TrimSpace(avatarID)
