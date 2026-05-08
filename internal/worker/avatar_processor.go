@@ -85,6 +85,17 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return fmt.Errorf("get avatar metadata: %w", err)
 	}
 
+	if avatar.ProcessingStatus == domain.ProcessingStatusCompleted {
+		p.log.Info(
+			"avatar processing already completed, skipping event",
+			zap.String("avatar_id", avatar.ID),
+			zap.String("user_id", avatar.UserID),
+			zap.String("processing_status", string(avatar.ProcessingStatus)),
+		)
+
+		return nil
+	}
+
 	if _, err := p.repo.UpdateProcessingStatus(ctx, avatar.ID, domain.ProcessingStatusProcessing); err != nil {
 		return fmt.Errorf("set processing status: %w", err)
 	}

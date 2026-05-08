@@ -281,3 +281,68 @@ func TestAvatarProcessor_HandleAvatarUploaded_EmptyAvatarID(t *testing.T) {
 		t.Fatal("did not expect GetByID to be called")
 	}
 }
+
+func TestAvatarProcessor_HandleAvatarUploaded_AlreadyCompletedSkipsProcessing(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:               "avatar-id",
+			UserID:           "sergey",
+			S3Key:            "originals/avatar-id/avatar.jpg",
+			ProcessingStatus: domain.ProcessingStatusCompleted,
+		},
+	}
+
+	storage := &fakeAvatarStorage{
+		downloadData: []byte("original-image"),
+	}
+
+	imageProcessor := &fakeImageProcessor{
+		processResult: services.ImageProcessResult{
+			Width:  800,
+			Height: 600,
+			Thumbnails: []services.ImageThumbnail{
+				{
+					Size:        domain.ThumbnailSize100,
+					Data:        []byte("thumb-100"),
+					ContentType: "image/jpeg",
+					Extension:   ".jpg",
+				},
+			},
+		},
+	}
+
+	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+
+	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
+		AvatarID: "avatar-id",
+		UserID:   "sergey",
+		S3Key:    "originals/avatar-id/avatar.jpg",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getByIDCalled {
+		t.Fatal("expected GetByID to be called")
+	}
+
+	if len(repo.updateStatuses) != 0 {
+		t.Fatalf("did not expect processing status update, got %d updates", len(repo.updateStatuses))
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect original image download")
+	}
+
+	if imageProcessor.processCalled {
+		t.Fatal("did not expect image processing")
+	}
+
+	if len(storage.uploadKeys) != 0 {
+		t.Fatalf("did not expect thumbnail uploads, got %d uploads", len(storage.uploadKeys))
+	}
+
+	if repo.updateResultCalled {
+		t.Fatal("did not expect processing result update")
+	}
+}
