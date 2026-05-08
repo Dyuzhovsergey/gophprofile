@@ -20,6 +20,7 @@ import (
 type AvatarManager interface {
 	UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error)
 	GetAvatarByID(ctx context.Context, avatarID string) (services.DownloadAvatarResult, error)
+	GetAvatarThumbnailByID(ctx context.Context, avatarID string, size domain.ThumbnailSize) (services.DownloadAvatarResult, error)
 	GetCurrentAvatarByUserID(ctx context.Context, userID string) (services.DownloadAvatarResult, error)
 	GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error)
 	ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error)
@@ -141,6 +142,22 @@ func (h *AvatarHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 			Error:   "Invalid avatar id",
 			Details: "avatar_id is required",
 		})
+		return
+	}
+
+	sizeParam := strings.TrimSpace(r.URL.Query().Get("size"))
+	if sizeParam != "" {
+		result, err := h.avatarService.GetAvatarThumbnailByID(
+			r.Context(),
+			avatarID,
+			domain.ThumbnailSize(sizeParam),
+		)
+		if err != nil {
+			h.handleGetByIDError(w, err)
+			return
+		}
+
+		writeAvatarBinary(w, result)
 		return
 	}
 
@@ -333,6 +350,15 @@ func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
 		writeJSONError(w, http.StatusNotFound, ErrorResponse{
 			Error: "Avatar not found",
+		})
+	case errors.Is(err, domain.ErrThumbnailNotFound):
+		writeJSONError(w, http.StatusNotFound, ErrorResponse{
+			Error: "Thumbnail not found",
+		})
+	case errors.Is(err, domain.ErrInvalidThumbnailSize):
+		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid thumbnail size",
+			Details: "Supported sizes: 100x100, 300x300",
 		})
 	default:
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
