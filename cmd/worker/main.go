@@ -11,6 +11,8 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
+	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
+	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	avatarworker "github.com/Dyuzhovsergey/gophprofile/internal/worker"
 	"go.uber.org/zap"
 )
@@ -37,6 +39,17 @@ func main() {
 
 	log.Info("connected to postgres")
 
+	avatarRepository := postgres.NewAvatarRepository(db)
+
+	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
+	if err != nil {
+		log.Fatal("failed to create s3 storage client", zap.Error(err))
+	}
+
+	imageService := services.NewImageService()
+
+	log.Info("s3 storage client created")
+
 	consumer, err := rabbitmq.NewConsumer(cfg.RabbitMQ)
 	if err != nil {
 		log.Fatal("failed to create rabbitmq consumer", zap.Error(err))
@@ -47,7 +60,12 @@ func main() {
 		}
 	}()
 
-	processor := avatarworker.NewAvatarProcessor(log)
+	processor := avatarworker.NewAvatarProcessor(
+		log,
+		avatarRepository,
+		avatarStorage,
+		imageService,
+	)
 
 	log.Info(
 		"GophProfile worker started",
