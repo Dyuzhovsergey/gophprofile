@@ -1100,3 +1100,122 @@ func TestAvatarService_UploadAvatar_PublisherError(t *testing.T) {
 		t.Fatal("did not expect storage cleanup after publisher error")
 	}
 }
+
+func TestAvatarService_GetAvatarThumbnailByID_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:       "avatar-id",
+			UserID:   "sergey",
+			MIMEType: "image/png",
+			ThumbnailS3Keys: map[domain.ThumbnailSize]string{
+				domain.ThumbnailSize100: "thumbnails/avatar-id/100x100.jpg",
+			},
+		},
+	}
+
+	storage := &fakeAvatarStorage{
+		downloadData:        []byte("thumbnail-data"),
+		downloadContentType: "image/jpeg",
+	}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	result, err := service.GetAvatarThumbnailByID(
+		context.Background(),
+		"avatar-id",
+		domain.ThumbnailSize100,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getByIDCalled {
+		t.Fatal("expected repository GetByID to be called")
+	}
+
+	if repo.getByIDInput != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", repo.getByIDInput, "avatar-id")
+	}
+
+	if !storage.downloadCalled {
+		t.Fatal("expected storage Download to be called")
+	}
+
+	if storage.downloadKey != "thumbnails/avatar-id/100x100.jpg" {
+		t.Fatalf("unexpected download key: got %q", storage.downloadKey)
+	}
+
+	if string(result.Data) != "thumbnail-data" {
+		t.Fatalf("unexpected data: got %q, want %q", string(result.Data), "thumbnail-data")
+	}
+
+	if result.ContentType != "image/jpeg" {
+		t.Fatalf("unexpected content type: got %q, want %q", result.ContentType, "image/jpeg")
+	}
+}
+
+func TestAvatarService_GetAvatarThumbnailByID_InvalidSize(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarThumbnailByID(
+		context.Background(),
+		"avatar-id",
+		domain.ThumbnailSize("500x500"),
+	)
+	if !errors.Is(err, domain.ErrInvalidThumbnailSize) {
+		t.Fatalf("expected ErrInvalidThumbnailSize, got %v", err)
+	}
+
+	if repo.getByIDCalled {
+		t.Fatal("did not expect repository GetByID to be called")
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_GetAvatarThumbnailByID_OriginalSizeIsInvalid(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarThumbnailByID(
+		context.Background(),
+		"avatar-id",
+		domain.ThumbnailSizeOriginal,
+	)
+	if !errors.Is(err, domain.ErrInvalidThumbnailSize) {
+		t.Fatalf("expected ErrInvalidThumbnailSize, got %v", err)
+	}
+}
+
+func TestAvatarService_GetAvatarThumbnailByID_NotGeneratedYet(t *testing.T) {
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:              "avatar-id",
+			UserID:          "sergey",
+			ThumbnailS3Keys: map[domain.ThumbnailSize]string{},
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarThumbnailByID(
+		context.Background(),
+		"avatar-id",
+		domain.ThumbnailSize100,
+	)
+	if !errors.Is(err, domain.ErrThumbnailNotFound) {
+		t.Fatalf("expected ErrThumbnailNotFound, got %v", err)
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect storage Download to be called")
+	}
+}

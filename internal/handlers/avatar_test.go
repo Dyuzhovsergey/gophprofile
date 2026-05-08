@@ -57,6 +57,12 @@ type fakeAvatarUploader struct {
 	deleteCurrentActorUserID string
 	deleteCurrentAvatar      domain.Avatar
 	deleteCurrentErr         error
+
+	getThumbnailCalled bool
+	getThumbnailInput  string
+	getThumbnailSize   domain.ThumbnailSize
+	getThumbnailResult services.DownloadAvatarResult
+	getThumbnailErr    error
 }
 
 func (u *fakeAvatarUploader) UploadAvatar(ctx context.Context, input services.UploadAvatarInput) (domain.Avatar, error) {
@@ -82,6 +88,22 @@ func (u *fakeAvatarUploader) GetAvatarByID(
 	}
 
 	return u.getByIDResult, nil
+}
+
+func (u *fakeAvatarUploader) GetAvatarThumbnailByID(
+	ctx context.Context,
+	avatarID string,
+	size domain.ThumbnailSize,
+) (services.DownloadAvatarResult, error) {
+	u.getThumbnailCalled = true
+	u.getThumbnailInput = avatarID
+	u.getThumbnailSize = size
+
+	if u.getThumbnailErr != nil {
+		return services.DownloadAvatarResult{}, u.getThumbnailErr
+	}
+
+	return u.getThumbnailResult, nil
 }
 
 func (u *fakeAvatarUploader) GetCurrentAvatarByUserID(
@@ -1022,5 +1044,103 @@ func TestAvatarHandler_DeleteCurrentByUserID_InternalError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAvatarHandler_GetByID_ThumbnailSuccess(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getThumbnailResult: services.DownloadAvatarResult{
+			Avatar: domain.Avatar{
+				ID: "avatar-id",
+			},
+			Data:        []byte("thumbnail-data"),
+			ContentType: "image/jpeg",
+		},
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id?size=100x100", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if !uploader.getThumbnailCalled {
+		t.Fatal("expected GetAvatarThumbnailByID to be called")
+	}
+
+	if uploader.getThumbnailInput != "avatar-id" {
+		t.Fatalf("unexpected avatar id: got %q, want %q", uploader.getThumbnailInput, "avatar-id")
+	}
+
+	if uploader.getThumbnailSize != domain.ThumbnailSize100 {
+		t.Fatalf("unexpected thumbnail size: got %q, want %q", uploader.getThumbnailSize, domain.ThumbnailSize100)
+	}
+
+	if uploader.getByIDCalled {
+		t.Fatal("did not expect GetAvatarByID to be called")
+	}
+
+	if rec.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatalf("unexpected content type: got %q", rec.Header().Get("Content-Type"))
+	}
+
+	if rec.Body.String() != "thumbnail-data" {
+		t.Fatalf("unexpected body: got %q, want %q", rec.Body.String(), "thumbnail-data")
+	}
+}
+
+func TestAvatarHandler_GetByID_InvalidThumbnailSize(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getThumbnailErr: domain.ErrInvalidThumbnailSize,
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id?size=500x500", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	if !uploader.getThumbnailCalled {
+		t.Fatal("expected GetAvatarThumbnailByID to be called")
+	}
+}
+
+func TestAvatarHandler_GetByID_ThumbnailNotFound(t *testing.T) {
+	uploader := &fakeAvatarUploader{
+		getThumbnailErr: domain.ErrThumbnailNotFound,
+	}
+
+	handler := NewAvatarHandler(uploader, services.DefaultMaxUploadSizeBytes)
+
+	router := chi.NewRouter()
+	router.Get("/api/v1/avatars/{avatar_id}", handler.GetByID)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/avatar-id?size=100x100", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	if !uploader.getThumbnailCalled {
+		t.Fatal("expected GetAvatarThumbnailByID to be called")
 	}
 }
