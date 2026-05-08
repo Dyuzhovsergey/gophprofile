@@ -6,8 +6,13 @@ import (
 	"image"
 	"image/jpeg"
 
+	// Регистрируем PNG decoder для image.Decode.
+	_ "image/png"
+
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"golang.org/x/image/draw"
+
+	// Регистрируем WebP decoder для image.Decode.
 	_ "golang.org/x/image/webp"
 )
 

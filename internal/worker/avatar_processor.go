@@ -105,6 +105,13 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	result, err := p.imageProcessor.Process(originalData)
 	if err != nil {
+		p.log.Error(
+			"failed to process avatar image",
+			zap.String("avatar_id", avatar.ID),
+			zap.String("s3_key", avatar.S3Key),
+			zap.Error(err),
+		)
+
 		p.markProcessingFailed(ctx, avatar.ID)
 
 		return fmt.Errorf("process avatar image: %w", err)
