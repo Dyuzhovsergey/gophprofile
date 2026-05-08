@@ -8,8 +8,6 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"golang.org/x/image/draw"
-
-	// Регистрируем WebP decoder для image.Decode.
 	_ "golang.org/x/image/webp"
 )
 
