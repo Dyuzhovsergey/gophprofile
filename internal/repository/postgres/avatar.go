@@ -254,6 +254,54 @@ func (r *AvatarRepository) UpdateThumbnails(
 	return avatar, nil
 }
 
+// UpdateProcessingResult обновляет результат обработки изображения.
+func (r *AvatarRepository) UpdateProcessingResult(
+	ctx context.Context,
+	id string,
+	width int,
+	height int,
+	thumbnails map[domain.ThumbnailSize]string,
+	status domain.ProcessingStatus,
+) (domain.Avatar, error) {
+	if !status.IsValid() {
+		return domain.Avatar{}, domain.ErrInvalidStatus
+	}
+
+	thumbnailS3Keys, err := encodeThumbnailS3Keys(thumbnails)
+	if err != nil {
+		return domain.Avatar{}, fmt.Errorf("encode thumbnail s3 keys: %w", err)
+	}
+
+	query := `
+		UPDATE avatars
+		SET
+			width = $2,
+			height = $3,
+			thumbnail_s3_keys = $4,
+			processing_status = $5,
+			updated_at = NOW()
+		WHERE id = $1
+			AND deleted_at IS NULL
+		RETURNING ` + avatarColumns
+
+	avatar, err := scanAvatar(
+		r.db.QueryRow(
+			ctx,
+			query,
+			id,
+			width,
+			height,
+			thumbnailS3Keys,
+			string(status),
+		),
+	)
+	if err != nil {
+		return domain.Avatar{}, mapAvatarScanError(err)
+	}
+
+	return avatar, nil
+}
+
 // avatarScanner описывает общий интерфейс для pgx.Row и pgx.Rows.
 type avatarScanner interface {
 	Scan(dest ...any) error
