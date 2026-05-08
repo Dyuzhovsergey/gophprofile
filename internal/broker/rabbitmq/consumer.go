@@ -98,7 +98,7 @@ func (c *Consumer) ConsumeAvatarUploaded(ctx context.Context, handler AvatarUplo
 			}
 
 			if err := handler(ctx, event); err != nil {
-				_ = delivery.Nack(false, true)
+				_ = delivery.Nack(false, false)
 				continue
 			}
 
