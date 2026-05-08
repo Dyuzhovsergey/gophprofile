@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"testing"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
@@ -35,12 +36,7 @@ func TestImageService_Process_JPEG(t *testing.T) {
 func TestImageService_Process_PNG(t *testing.T) {
 	service := NewImageService()
 
-	img := createTestImage(1024, 768)
-
-	data, err := EncodePNGForTest(img)
-	if err != nil {
-		t.Fatalf("failed to create png: %v", err)
-	}
+	data := mustCreatePNG(t, 1024, 768)
 
 	result, err := service.Process(data)
 	if err != nil {
@@ -138,6 +134,19 @@ func mustCreateJPEG(t *testing.T, width int, height int) []byte {
 	var buffer bytes.Buffer
 	if err := jpeg.Encode(&buffer, img, &jpeg.Options{Quality: 90}); err != nil {
 		t.Fatalf("failed to encode jpeg: %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func mustCreatePNG(t *testing.T, width int, height int) []byte {
+	t.Helper()
+
+	img := createTestImage(width, height)
+
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, img); err != nil {
+		t.Fatalf("failed to encode png: %v", err)
 	}
 
 	return buffer.Bytes()

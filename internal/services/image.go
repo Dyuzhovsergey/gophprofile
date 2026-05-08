@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
-	"image/png"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"golang.org/x/image/draw"
@@ -146,16 +145,4 @@ func cropImage(source image.Image, rect image.Rectangle) image.Image {
 	)
 
 	return destination
-}
-
-// EncodePNGForTest кодирует изображение в PNG.
-// Функция используется только в тестах пакета services.
-func EncodePNGForTest(img image.Image) ([]byte, error) {
-	var buffer bytes.Buffer
-
-	if err := png.Encode(&buffer, img); err != nil {
-		return nil, fmt.Errorf("encode png: %w", err)
-	}
-
-	return buffer.Bytes(), nil
 }
