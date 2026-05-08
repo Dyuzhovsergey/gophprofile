@@ -23,4 +23,10 @@ var (
 
 	// ErrInvalidStatus означает, что передан неизвестный статус.
 	ErrInvalidStatus = errors.New("invalid status")
+
+	// ErrInvalidThumbnailSize означает, что передан неподдерживаемый размер миниатюры.
+	ErrInvalidThumbnailSize = errors.New("invalid thumbnail size")
+
+	// ErrThumbnailNotFound означает, что миниатюра не найдена.
+	ErrThumbnailNotFound = errors.New("thumbnail not found")
 )
