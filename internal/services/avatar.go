@@ -34,6 +34,7 @@ type AvatarStorage interface {
 // AvatarEventPublisher описывает публикацию событий аватарок.
 type AvatarEventPublisher interface {
 	PublishAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) error
+	PublishAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) error
 }
 
 // NoopAvatarEventPublisher используется, когда публикация событий ещё не подключена.
@@ -41,6 +42,11 @@ type NoopAvatarEventPublisher struct{}
 
 // PublishAvatarUploaded ничего не делает и всегда возвращает nil.
 func (NoopAvatarEventPublisher) PublishAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) error {
+	return nil
+}
+
+// PublishAvatarDeleted ничего не делает и всегда возвращает nil.
+func (NoopAvatarEventPublisher) PublishAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) error {
 	return nil
 }
 
@@ -355,6 +361,10 @@ func (s *AvatarService) DeleteAvatarByID(
 		return domain.Avatar{}, err
 	}
 
+	if err := s.publishAvatarDeleted(ctx, deletedAvatar); err != nil {
+		return domain.Avatar{}, err
+	}
+
 	return deletedAvatar, nil
 }
 
@@ -396,7 +406,27 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 		return domain.Avatar{}, err
 	}
 
+	if err := s.publishAvatarDeleted(ctx, deletedAvatar); err != nil {
+		return domain.Avatar{}, err
+	}
+
 	return deletedAvatar, nil
+}
+
+// publishAvatarDeleted публикует событие удаления аватарки.
+func (s *AvatarService) publishAvatarDeleted(ctx context.Context, avatar domain.Avatar) error {
+	event := domain.AvatarDeletedEvent{
+		AvatarID:        avatar.ID,
+		UserID:          avatar.UserID,
+		S3Key:           avatar.S3Key,
+		ThumbnailS3Keys: avatar.ThumbnailS3Keys,
+	}
+
+	if err := s.eventPublisher.PublishAvatarDeleted(ctx, event); err != nil {
+		return fmt.Errorf("publish avatar deleted event: %w", err)
+	}
+
+	return nil
 }
 
 // normalizeMIMEType приводит MIME-type к единому виду.

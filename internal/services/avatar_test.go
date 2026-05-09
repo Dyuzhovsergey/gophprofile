@@ -38,9 +38,12 @@ type fakeAvatarRepository struct {
 }
 
 type fakeAvatarEventPublisher struct {
-	called bool
-	event  domain.AvatarUploadEvent
-	err    error
+	called        bool
+	event         domain.AvatarUploadEvent
+	err           error
+	deletedCalled bool
+	deletedEvent  domain.AvatarDeletedEvent
+	deletedErr    error
 }
 
 func (p *fakeAvatarEventPublisher) PublishAvatarUploaded(
@@ -125,6 +128,16 @@ func (r *fakeAvatarRepository) SoftDelete(ctx context.Context, id string) (domai
 		UserID:    userID,
 		DeletedAt: &deletedAt,
 	}, nil
+}
+
+func (p *fakeAvatarEventPublisher) PublishAvatarDeleted(
+	ctx context.Context,
+	event domain.AvatarDeletedEvent,
+) error {
+	p.deletedCalled = true
+	p.deletedEvent = event
+
+	return p.deletedErr
 }
 
 type fakeAvatarStorage struct {

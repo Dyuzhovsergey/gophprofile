@@ -30,6 +30,7 @@ type AvatarRepository interface {
 type AvatarStorage interface {
 	Download(ctx context.Context, key string) ([]byte, string, error)
 	Upload(ctx context.Context, key string, body io.Reader, contentType string) error
+	Delete(ctx context.Context, key string) error
 }
 
 // ImageProcessor описывает сервис обработки изображений.
@@ -193,4 +194,45 @@ func buildThumbnailS3Key(
 	}
 
 	return fmt.Sprintf("thumbnails/%s/%s%s", avatarID, size, extension)
+}
+
+// HandleAvatarDeleted обрабатывает событие удаления аватарки.
+func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) error {
+	avatarID := strings.TrimSpace(event.AvatarID)
+	if avatarID == "" {
+		return domain.ErrAvatarNotFound
+	}
+
+	p.log.Info(
+		"avatar deleted event received",
+		zap.String("avatar_id", event.AvatarID),
+		zap.String("user_id", event.UserID),
+		zap.String("s3_key", event.S3Key),
+		zap.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+	)
+
+	if strings.TrimSpace(event.S3Key) != "" {
+		if err := p.storage.Delete(ctx, event.S3Key); err != nil {
+			return fmt.Errorf("delete original avatar from s3: %w", err)
+		}
+	}
+
+	for size, key := range event.ThumbnailS3Keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+
+		if err := p.storage.Delete(ctx, key); err != nil {
+			return fmt.Errorf("delete avatar thumbnail %s from s3: %w", size, err)
+		}
+	}
+
+	p.log.Info(
+		"avatar files deleted from s3",
+		zap.String("avatar_id", event.AvatarID),
+		zap.String("user_id", event.UserID),
+	)
+
+	return nil
 }

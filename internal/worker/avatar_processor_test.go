@@ -89,6 +89,8 @@ type fakeAvatarStorage struct {
 
 	uploadKeys []string
 	uploadErr  error
+	deleteKeys []string
+	deleteErr  error
 }
 
 func (s *fakeAvatarStorage) Download(ctx context.Context, key string) ([]byte, string, error) {
@@ -110,6 +112,12 @@ func (s *fakeAvatarStorage) Upload(ctx context.Context, key string, body io.Read
 	}
 
 	return s.uploadErr
+}
+
+func (s *fakeAvatarStorage) Delete(ctx context.Context, key string) error {
+	s.deleteKeys = append(s.deleteKeys, key)
+
+	return s.deleteErr
 }
 
 type fakeImageProcessor struct {
@@ -344,5 +352,50 @@ func TestAvatarProcessor_HandleAvatarUploaded_AlreadyCompletedSkipsProcessing(t 
 
 	if repo.updateResultCalled {
 		t.Fatal("did not expect processing result update")
+	}
+}
+
+func TestAvatarProcessor_HandleAvatarDeleted_Success(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+	imageProcessor := &fakeImageProcessor{}
+
+	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+
+	err := processor.HandleAvatarDeleted(context.Background(), domain.AvatarDeletedEvent{
+		AvatarID: "avatar-id",
+		UserID:   "sergey",
+		S3Key:    "originals/avatar-id/avatar.jpg",
+		ThumbnailS3Keys: map[domain.ThumbnailSize]string{
+			domain.ThumbnailSize100: "thumbnails/avatar-id/100x100.jpg",
+			domain.ThumbnailSize300: "thumbnails/avatar-id/300x300.jpg",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(storage.deleteKeys) != 3 {
+		t.Fatalf("unexpected delete count: got %d, want %d", len(storage.deleteKeys), 3)
+	}
+
+	wantKeys := map[string]bool{
+		"originals/avatar-id/avatar.jpg":   false,
+		"thumbnails/avatar-id/100x100.jpg": false,
+		"thumbnails/avatar-id/300x300.jpg": false,
+	}
+
+	for _, key := range storage.deleteKeys {
+		if _, ok := wantKeys[key]; !ok {
+			t.Fatalf("unexpected delete key: %q", key)
+		}
+
+		wantKeys[key] = true
+	}
+
+	for key, deleted := range wantKeys {
+		if !deleted {
+			t.Fatalf("expected key to be deleted: %q", key)
+		}
 	}
 }

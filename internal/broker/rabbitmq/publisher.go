@@ -29,11 +29,10 @@ var (
 )
 
 const (
-	exchangeTypeTopic = "topic"
-
-	contentTypeJSON = "application/json"
-
+	exchangeTypeTopic       = "topic"
+	contentTypeJSON         = "application/json"
 	eventTypeAvatarUploaded = "avatar.uploaded"
+	eventTypeAvatarDeleted  = "avatar.deleted"
 )
 
 // Publisher публикует события аватарок в RabbitMQ.
@@ -42,6 +41,7 @@ type Publisher struct {
 	channel          *amqp.Channel
 	exchange         string
 	uploadRoutingKey string
+	deleteRoutingKey string
 }
 
 // NewPublisher создаёт RabbitMQ publisher и объявляет exchange, queue и binding.
@@ -62,6 +62,14 @@ func NewPublisher(cfg config.RabbitMQConfig) (*Publisher, error) {
 		return nil, ErrEmptyRabbitMQRoutingKey
 	}
 
+	if strings.TrimSpace(cfg.DeleteQueue) == "" {
+		return nil, ErrEmptyRabbitMQQueue
+	}
+
+	if strings.TrimSpace(cfg.DeleteRoutingKey) == "" {
+		return nil, ErrEmptyRabbitMQRoutingKey
+	}
+
 	conn, err := amqp.Dial(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("dial rabbitmq: %w", err)
@@ -78,9 +86,15 @@ func NewPublisher(cfg config.RabbitMQConfig) (*Publisher, error) {
 		channel:          channel,
 		exchange:         cfg.Exchange,
 		uploadRoutingKey: cfg.UploadRoutingKey,
+		deleteRoutingKey: cfg.DeleteRoutingKey,
 	}
 
 	if err := publisher.declareUploadTopology(cfg); err != nil {
+		_ = publisher.Close()
+		return nil, err
+	}
+
+	if err := publisher.declareDeleteTopology(cfg); err != nil {
 		_ = publisher.Close()
 		return nil, err
 	}
@@ -165,6 +179,73 @@ func (p *Publisher) declareUploadTopology(cfg config.RabbitMQConfig) error {
 		nil,
 	); err != nil {
 		return fmt.Errorf("bind rabbitmq upload queue: %w", err)
+	}
+
+	return nil
+}
+
+// PublishAvatarDeleted публикует событие удаления аватарки.
+func (p *Publisher) PublishAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) error {
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal avatar deleted event: %w", err)
+	}
+
+	err = p.channel.PublishWithContext(
+		ctx,
+		p.exchange,
+		p.deleteRoutingKey,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  contentTypeJSON,
+			DeliveryMode: amqp.Persistent,
+			Timestamp:    time.Now(),
+			MessageId:    uuid.NewString(),
+			Type:         eventTypeAvatarDeleted,
+			Body:         body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("publish avatar deleted event: %w", err)
+	}
+
+	return nil
+}
+
+// declareDeleteTopology объявляет exchange, queue и binding для avatar.deleted.
+func (p *Publisher) declareDeleteTopology(cfg config.RabbitMQConfig) error {
+	if err := p.channel.ExchangeDeclare(
+		cfg.Exchange,
+		exchangeTypeTopic,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("declare rabbitmq exchange: %w", err)
+	}
+
+	if _, err := p.channel.QueueDeclare(
+		cfg.DeleteQueue,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("declare rabbitmq delete queue: %w", err)
+	}
+
+	if err := p.channel.QueueBind(
+		cfg.DeleteQueue,
+		cfg.DeleteRoutingKey,
+		cfg.Exchange,
+		false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("bind rabbitmq delete queue: %w", err)
 	}
 
 	return nil

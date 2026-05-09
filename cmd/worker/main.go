@@ -73,9 +73,12 @@ func main() {
 		zap.String("upload_queue", cfg.RabbitMQ.UploadQueue),
 	)
 
-	if err := consumer.ConsumeAvatarUploaded(ctx, processor.HandleAvatarUploaded); err != nil &&
-		!errors.Is(err, context.Canceled) {
-		log.Fatal("failed to consume avatar uploaded events", zap.Error(err))
+	if err := consumer.ConsumeAvatarEvents(
+		ctx,
+		processor.HandleAvatarUploaded,
+		processor.HandleAvatarDeleted,
+	); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatal("failed to consume avatar events", zap.Error(err))
 	}
 
 	log.Info("GophProfile worker stopped")
