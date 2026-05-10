@@ -19,6 +19,7 @@ func NewRouter(
 
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
+	router.Use(middleware.CORS)
 
 	router.Get("/health", healthHandler.Handle)
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
