@@ -17,7 +17,7 @@ services:
       retries: 10
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: minio/minio:latest
     container_name: gophprofile-minio
     command: server /data --console-address ":9001"
     environment:
@@ -35,7 +35,7 @@ services:
       retries: 10
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: minio/mc:latest
     container_name: gophprofile-minio-init
     depends_on:
       minio:
