@@ -70,9 +70,6 @@ func main() {
 		avatarService,
 		cfg.MaxUploadSizeBytes,
 	)
-	if err != nil {
-		log.Fatal("failed to create web handler", zap.Error(err))
-	}
 
 	log.Info("s3 storage client created")
 
