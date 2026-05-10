@@ -1,10 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +16,9 @@ import (
 
 // DefaultMaxUploadSizeBytes задаёт максимальный размер файла по умолчанию: 10 MB.
 const DefaultMaxUploadSizeBytes int64 = 10 * 1024 * 1024
+
+// detectContentTypeBufferSize задаёт количество байт для определения реального типа файла.
+const detectContentTypeBufferSize = 512
 
 // AvatarRepository описывает методы хранилища метаданных аватарок.
 type AvatarRepository interface {
@@ -135,7 +140,17 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 		return domain.Avatar{}, domain.ErrInvalidFile
 	}
 
+	detectedMIMEType, body, err := detectAvatarMIMEType(input.Body)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	if detectedMIMEType != mimeType {
+		return domain.Avatar{}, domain.ErrInvalidFile
+	}
+
 	avatarID := uuid.NewString()
+
 	fileName := normalizeFileName(input.FileName)
 	s3Key := buildOriginalS3Key(avatarID, fileName)
 
@@ -151,7 +166,7 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 		ProcessingStatus: domain.ProcessingStatusPending,
 	}
 
-	if err := s.storage.Upload(ctx, s3Key, input.Body, mimeType); err != nil {
+	if err := s.storage.Upload(ctx, s3Key, body, mimeType); err != nil {
 		return domain.Avatar{}, fmt.Errorf("upload avatar file: %w", err)
 	}
 
@@ -427,6 +442,29 @@ func (s *AvatarService) publishAvatarDeleted(ctx context.Context, avatar domain.
 	}
 
 	return nil
+}
+
+// detectAvatarMIMEType определяет реальный MIME-type файла по первым байтам.
+func detectAvatarMIMEType(body io.Reader) (string, io.Reader, error) {
+	buffer := make([]byte, detectContentTypeBufferSize)
+
+	n, err := io.ReadFull(body, buffer)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", nil, fmt.Errorf("read avatar magic bytes: %w", err)
+	}
+
+	if n == 0 {
+		return "", nil, domain.ErrInvalidFile
+	}
+
+	buffer = buffer[:n]
+
+	mimeType := normalizeMIMEType(http.DetectContentType(buffer))
+	if !isAllowedAvatarMIMEType(mimeType) {
+		return "", nil, domain.ErrInvalidFile
+	}
+
+	return mimeType, io.MultiReader(bytes.NewReader(buffer), body), nil
 }
 
 // normalizeMIMEType приводит MIME-type к единому виду.

@@ -11,6 +11,12 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 )
 
+var (
+	testJPEGAvatar = []byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0xff, 0xd9}
+	testPNGAvatar  = []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00}
+	testWebPAvatar = []byte{'R', 'I', 'F', 'F', 0x04, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '}
+)
+
 type fakeAvatarRepository struct {
 	createCalled bool
 	createInput  domain.Avatar
@@ -206,8 +212,8 @@ func TestAvatarService_UploadAvatar_Success(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -249,8 +255,8 @@ func TestAvatarService_UploadAvatar_Success(t *testing.T) {
 		t.Fatalf("unexpected upload content type: got %q, want %q", storage.uploadContentType, "image/jpeg")
 	}
 
-	if string(storage.uploadBody) != "data" {
-		t.Fatalf("unexpected upload body: got %q, want %q", string(storage.uploadBody), "data")
+	if !bytes.Equal(storage.uploadBody, testJPEGAvatar) {
+		t.Fatalf("unexpected upload body: got %v, want %v", storage.uploadBody, testJPEGAvatar)
 	}
 
 	if !repo.createCalled {
@@ -276,8 +282,8 @@ func TestAvatarService_UploadAvatar_MissingUserID(t *testing.T) {
 		UserID:    "   ",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 
 	if !errors.Is(err, domain.ErrMissingUserID) {
@@ -303,8 +309,8 @@ func TestAvatarService_UploadAvatar_FileTooLarge(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 
 	if !errors.Is(err, domain.ErrFileTooLarge) {
@@ -330,8 +336,8 @@ func TestAvatarService_UploadAvatar_InvalidMIMEType(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.txt",
 		MIMEType:  "text/plain",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 
 	if !errors.Is(err, domain.ErrInvalidFile) {
@@ -359,8 +365,8 @@ func TestAvatarService_UploadAvatar_StorageError(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -393,8 +399,8 @@ func TestAvatarService_UploadAvatar_RepositoryError_CleansUploadedFile(t *testin
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 
 	if !errors.Is(err, repoErr) {
@@ -1054,8 +1060,8 @@ func TestAvatarService_UploadAvatar_PublishesUploadEvent(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1098,8 +1104,8 @@ func TestAvatarService_UploadAvatar_PublisherError(t *testing.T) {
 		UserID:    "sergey",
 		FileName:  "avatar.jpg",
 		MIMEType:  "image/jpeg",
-		SizeBytes: 4,
-		Body:      bytes.NewBufferString("data"),
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
 	})
 	if !errors.Is(err, publisherErr) {
 		t.Fatalf("expected publisher error, got %v", err)
@@ -1230,5 +1236,85 @@ func TestAvatarService_GetAvatarThumbnailByID_NotGeneratedYet(t *testing.T) {
 
 	if storage.downloadCalled {
 		t.Fatal("did not expect storage Download to be called")
+	}
+}
+
+func TestAvatarService_UploadAvatar_InvalidMagicBytes(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.jpg",
+		MIMEType:  "image/jpeg",
+		SizeBytes: int64(len("plain text")),
+		Body:      bytes.NewBufferString("plain text"),
+	})
+
+	if !errors.Is(err, domain.ErrInvalidFile) {
+		t.Fatalf("expected ErrInvalidFile, got %v", err)
+	}
+
+	if storage.uploadCalled {
+		t.Fatal("did not expect storage upload to be called")
+	}
+
+	if repo.createCalled {
+		t.Fatal("did not expect repository create to be called")
+	}
+}
+
+func TestAvatarService_UploadAvatar_MIMETypeDoesNotMatchMagicBytes(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.jpg",
+		MIMEType:  "image/jpeg",
+		SizeBytes: int64(len(testPNGAvatar)),
+		Body:      bytes.NewReader(testPNGAvatar),
+	})
+
+	if !errors.Is(err, domain.ErrInvalidFile) {
+		t.Fatalf("expected ErrInvalidFile, got %v", err)
+	}
+
+	if storage.uploadCalled {
+		t.Fatal("did not expect storage upload to be called")
+	}
+
+	if repo.createCalled {
+		t.Fatal("did not expect repository create to be called")
+	}
+}
+
+func TestAvatarService_UploadAvatar_WebPMagicBytes(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	avatar, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.webp",
+		MIMEType:  "image/webp",
+		SizeBytes: int64(len(testWebPAvatar)),
+		Body:      bytes.NewReader(testWebPAvatar),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if avatar.MIMEType != "image/webp" {
+		t.Fatalf("unexpected mime type: got %q, want %q", avatar.MIMEType, "image/webp")
+	}
+
+	if !storage.uploadCalled {
+		t.Fatal("expected storage upload to be called")
 	}
 }
