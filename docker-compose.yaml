@@ -79,6 +79,7 @@ services:
     build:
       context: .
       dockerfile: docker/server.Dockerfile
+    restart: unless-stopped
     container_name: gophprofile-server
     depends_on:
       migrate:
@@ -114,6 +115,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
+    restart: unless-stopped
     container_name: gophprofile-worker
     depends_on:
       migrate:
