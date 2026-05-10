@@ -26,6 +26,9 @@ var (
 
 	// ErrEmptyRabbitMQRoutingKey означает, что не указан routing key.
 	ErrEmptyRabbitMQRoutingKey = errors.New("rabbitmq routing key is empty")
+
+	// ErrRabbitMQClosed означает, что соединение или канал RabbitMQ закрыты.
+	ErrRabbitMQClosed = errors.New("rabbitmq connection is closed")
 )
 
 const (
@@ -208,6 +211,25 @@ func (p *Publisher) PublishAvatarDeleted(ctx context.Context, event domain.Avata
 	)
 	if err != nil {
 		return fmt.Errorf("publish avatar deleted event: %w", err)
+	}
+
+	return nil
+}
+
+// Ping проверяет, что соединение и канал RabbitMQ открыты.
+func (p *Publisher) Ping(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if p == nil || p.conn == nil || p.channel == nil {
+		return ErrRabbitMQClosed
+	}
+
+	if p.conn.IsClosed() || p.channel.IsClosed() {
+		return ErrRabbitMQClosed
 	}
 
 	return nil
