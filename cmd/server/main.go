@@ -73,7 +73,12 @@ func main() {
 
 	log.Info("s3 storage client created")
 
-	healthHandler := handlers.NewHealthHandler(db)
+	healthHandler := handlers.NewHealthHandler(
+		db,
+		avatarStorage,
+		avatarEventPublisher,
+	)
+
 	router := handlers.NewRouter(log, healthHandler, avatarHandler, webHandler)
 	server := &http.Server{
 		Addr:              cfg.Address,

@@ -16,13 +16,21 @@ type HealthPinger interface {
 
 // HealthHandler обрабатывает запросы проверки работоспособности сервиса.
 type HealthHandler struct {
-	db HealthPinger
+	postgres HealthPinger
+	s3       HealthPinger
+	rabbitMQ HealthPinger
 }
 
 // NewHealthHandler создаёт обработчик проверки работоспособности.
-func NewHealthHandler(db HealthPinger) *HealthHandler {
+func NewHealthHandler(
+	postgres HealthPinger,
+	s3 HealthPinger,
+	rabbitMQ HealthPinger,
+) *HealthHandler {
 	return &HealthHandler{
-		db: db,
+		postgres: postgres,
+		s3:       s3,
+		rabbitMQ: rabbitMQ,
 	}
 }
 
@@ -40,24 +48,29 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		"server": "ok",
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
+	defer cancel()
+
+	allOK := true
+
+	if !checkHealthComponent(ctx, details, "postgres", h.postgres) {
+		allOK = false
+	}
+
+	if !checkHealthComponent(ctx, details, "s3", h.s3) {
+		allOK = false
+	}
+
+	if !checkHealthComponent(ctx, details, "rabbitmq", h.rabbitMQ) {
+		allOK = false
+	}
+
 	statusCode := http.StatusOK
 	status := "ok"
 
-	if h.db == nil {
-		details["postgres"] = "not_configured"
-		status = "degraded"
+	if !allOK {
 		statusCode = http.StatusServiceUnavailable
-	} else {
-		ctx, cancel := context.WithTimeout(r.Context(), healthCheckTimeout)
-		defer cancel()
-
-		if err := h.db.Ping(ctx); err != nil {
-			details["postgres"] = "error"
-			status = "degraded"
-			statusCode = http.StatusServiceUnavailable
-		} else {
-			details["postgres"] = "ok"
-		}
+		status = "degraded"
 	}
 
 	w.WriteHeader(statusCode)
@@ -68,4 +81,26 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		http.Error(w, "failed to encode health response", http.StatusInternalServerError)
 	}
+}
+
+// checkHealthComponent проверяет один компонент и записывает его статус в details.
+func checkHealthComponent(
+	ctx context.Context,
+	details map[string]string,
+	name string,
+	pinger HealthPinger,
+) bool {
+	if pinger == nil {
+		details[name] = "not_configured"
+		return false
+	}
+
+	if err := pinger.Ping(ctx); err != nil {
+		details[name] = "error"
+		return false
+	}
+
+	details[name] = "ok"
+
+	return true
 }

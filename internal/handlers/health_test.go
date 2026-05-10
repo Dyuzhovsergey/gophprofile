@@ -18,7 +18,11 @@ func (p fakeHealthPinger) Ping(ctx context.Context) error {
 }
 
 func TestHealthHandler_Handle_OK(t *testing.T) {
-	handler := NewHealthHandler(fakeHealthPinger{})
+	handler := NewHealthHandler(
+		fakeHealthPinger{},
+		fakeHealthPinger{},
+		fakeHealthPinger{},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -29,28 +33,24 @@ func TestHealthHandler_Handle_OK(t *testing.T) {
 		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var response HealthResponse
-	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	response := decodeHealthResponse(t, rec)
 
 	if response.Status != "ok" {
 		t.Fatalf("unexpected status: got %q, want %q", response.Status, "ok")
 	}
 
-	if response.Details["server"] != "ok" {
-		t.Fatalf("unexpected server status: got %q, want %q", response.Details["server"], "ok")
-	}
-
-	if response.Details["postgres"] != "ok" {
-		t.Fatalf("unexpected postgres status: got %q, want %q", response.Details["postgres"], "ok")
-	}
+	assertHealthDetail(t, response, "server", "ok")
+	assertHealthDetail(t, response, "postgres", "ok")
+	assertHealthDetail(t, response, "s3", "ok")
+	assertHealthDetail(t, response, "rabbitmq", "ok")
 }
 
 func TestHealthHandler_Handle_PostgresError(t *testing.T) {
-	handler := NewHealthHandler(fakeHealthPinger{
-		err: errors.New("postgres is unavailable"),
-	})
+	handler := NewHealthHandler(
+		fakeHealthPinger{err: errors.New("postgres is unavailable")},
+		fakeHealthPinger{},
+		fakeHealthPinger{},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -58,25 +58,30 @@ func TestHealthHandler_Handle_PostgresError(t *testing.T) {
 	handler.Handle(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusServiceUnavailable)
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
 	}
 
-	var response HealthResponse
-	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	response := decodeHealthResponse(t, rec)
 
 	if response.Status != "degraded" {
 		t.Fatalf("unexpected status: got %q, want %q", response.Status, "degraded")
 	}
 
-	if response.Details["postgres"] != "error" {
-		t.Fatalf("unexpected postgres status: got %q, want %q", response.Details["postgres"], "error")
-	}
+	assertHealthDetail(t, response, "postgres", "error")
+	assertHealthDetail(t, response, "s3", "ok")
+	assertHealthDetail(t, response, "rabbitmq", "ok")
 }
 
-func TestHealthHandler_Handle_PostgresNotConfigured(t *testing.T) {
-	handler := NewHealthHandler(nil)
+func TestHealthHandler_Handle_S3Error(t *testing.T) {
+	handler := NewHealthHandler(
+		fakeHealthPinger{},
+		fakeHealthPinger{err: errors.New("s3 is unavailable")},
+		fakeHealthPinger{},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -84,19 +89,104 @@ func TestHealthHandler_Handle_PostgresNotConfigured(t *testing.T) {
 	handler.Handle(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusServiceUnavailable)
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
 	}
+
+	response := decodeHealthResponse(t, rec)
+
+	if response.Status != "degraded" {
+		t.Fatalf("unexpected status: got %q, want %q", response.Status, "degraded")
+	}
+
+	assertHealthDetail(t, response, "postgres", "ok")
+	assertHealthDetail(t, response, "s3", "error")
+	assertHealthDetail(t, response, "rabbitmq", "ok")
+}
+
+func TestHealthHandler_Handle_RabbitMQError(t *testing.T) {
+	handler := NewHealthHandler(
+		fakeHealthPinger{},
+		fakeHealthPinger{},
+		fakeHealthPinger{err: errors.New("rabbitmq is unavailable")},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Handle(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
+	}
+
+	response := decodeHealthResponse(t, rec)
+
+	if response.Status != "degraded" {
+		t.Fatalf("unexpected status: got %q, want %q", response.Status, "degraded")
+	}
+
+	assertHealthDetail(t, response, "postgres", "ok")
+	assertHealthDetail(t, response, "s3", "ok")
+	assertHealthDetail(t, response, "rabbitmq", "error")
+}
+
+func TestHealthHandler_Handle_NotConfigured(t *testing.T) {
+	handler := NewHealthHandler(nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Handle(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
+	}
+
+	response := decodeHealthResponse(t, rec)
+
+	if response.Status != "degraded" {
+		t.Fatalf("unexpected status: got %q, want %q", response.Status, "degraded")
+	}
+
+	assertHealthDetail(t, response, "server", "ok")
+	assertHealthDetail(t, response, "postgres", "not_configured")
+	assertHealthDetail(t, response, "s3", "not_configured")
+	assertHealthDetail(t, response, "rabbitmq", "not_configured")
+}
+
+func decodeHealthResponse(t *testing.T, rec *httptest.ResponseRecorder) HealthResponse {
+	t.Helper()
 
 	var response HealthResponse
 	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if response.Status != "degraded" {
-		t.Fatalf("unexpected status: got %q, want %q", response.Status, "degraded")
-	}
+	return response
+}
 
-	if response.Details["postgres"] != "not_configured" {
-		t.Fatalf("unexpected postgres status: got %q, want %q", response.Details["postgres"], "not_configured")
+func assertHealthDetail(
+	t *testing.T,
+	response HealthResponse,
+	name string,
+	want string,
+) {
+	t.Helper()
+
+	got := response.Details[name]
+	if got != want {
+		t.Fatalf("unexpected %s status: got %q, want %q", name, got, want)
 	}
 }
