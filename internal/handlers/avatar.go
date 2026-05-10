@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"sort"
 	"strings"
@@ -106,7 +107,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadSizeBytes)
 
-	file, fileHeader, err := r.FormFile("file")
+	file, fileHeader, err := formFileByNames(r, "file", "image")
 	if err != nil {
 		h.handleMultipartError(w, err)
 		return
@@ -484,4 +485,23 @@ func writeJSON(w http.ResponseWriter, statusCode int, response any) {
 // writeJSONError записывает JSON-ответ с ошибкой.
 func writeJSONError(w http.ResponseWriter, statusCode int, response ErrorResponse) {
 	writeJSON(w, statusCode, response)
+}
+
+// formFileByNames ищет файл в multipart/form-data по нескольким возможным именам поля.
+func formFileByNames(
+	r *http.Request,
+	fieldNames ...string,
+) (multipart.File, *multipart.FileHeader, error) {
+	var lastErr error
+
+	for _, fieldName := range fieldNames {
+		file, fileHeader, err := r.FormFile(fieldName)
+		if err == nil {
+			return file, fileHeader, nil
+		}
+
+		lastErr = err
+	}
+
+	return nil, nil, lastErr
 }
