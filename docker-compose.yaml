@@ -28,8 +28,8 @@ services:
     command: >
       sh -c "
       apk add --no-cache git &&
-      go install github.com/pressly/goose/v3/cmd/goose@latest &&
-      /root/go/bin/goose -dir migrations postgres 'postgres://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable' up
+      GOBIN=/usr/local/bin go install github.com/pressly/goose/v3/cmd/goose@latest &&
+      goose -dir migrations postgres 'postgres://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable' up
       "
 
   minio:
