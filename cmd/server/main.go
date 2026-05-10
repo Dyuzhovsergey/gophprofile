@@ -66,10 +66,18 @@ func main() {
 		cfg.MaxUploadSizeBytes,
 	)
 
+	webHandler, err := handlers.NewWebHandler(
+		avatarService,
+		cfg.MaxUploadSizeBytes,
+	)
+	if err != nil {
+		log.Fatal("failed to create web handler", zap.Error(err))
+	}
+
 	log.Info("s3 storage client created")
 
 	healthHandler := handlers.NewHealthHandler(db)
-	router := handlers.NewRouter(log, healthHandler, avatarHandler)
+	router := handlers.NewRouter(log, healthHandler, avatarHandler, webHandler)
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           router,

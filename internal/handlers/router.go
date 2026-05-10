@@ -13,6 +13,7 @@ func NewRouter(
 	log *zap.Logger,
 	healthHandler *HealthHandler,
 	avatarHandler *AvatarHandler,
+	webHandler *WebHandler,
 ) http.Handler {
 	router := chi.NewRouter()
 
@@ -20,6 +21,18 @@ func NewRouter(
 	router.Use(middleware.RequestLogger(log))
 
 	router.Get("/health", healthHandler.Handle)
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/web/upload", http.StatusSeeOther)
+	})
+
+	router.Handle(
+		"/web/static/*",
+		http.StripPrefix("/web/static/", http.FileServer(http.Dir("web/static"))),
+	)
+
+	router.Get("/web/upload", webHandler.UploadPage)
+	router.Post("/web/upload", webHandler.Upload)
+	router.Get("/web/gallery/{user_id}", webHandler.Gallery)
 
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Get("/avatars/{avatar_id}", avatarHandler.GetByID)

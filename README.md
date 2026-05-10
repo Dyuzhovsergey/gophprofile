@@ -214,7 +214,7 @@ curl -i http://localhost:9090/api/v1/users/sergey/avatars
 }
 ```
 
-#### Мягкое удаление аватарки по avatar_id
+### Мягкое удаление аватарки по avatar_id
 ``` bash
 curl -i -X DELETE http://localhost:9090/api/v1/avatars/<avatar_id> \
   -H "X-User-ID: sergey"
