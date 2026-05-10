@@ -46,6 +46,16 @@ migrations/      SQL-миграции PostgreSQL
 docker/          Dockerfile-ы server и worker
 web/             Статические файлы
 ```
+## Адреса сервисов
+HTTP API	http://localhost:9090
+Web upload	http://localhost:9090/web/upload
+Web gallery	http://localhost:9090/web/gallery/user
+PostgreSQL	localhost:5433
+MinIO API	http://localhost:9000
+MinIO Console	http://localhost:9001
+RabbitMQ AMQP	localhost:5672
+RabbitMQ Management UI	http://localhost:15672
+
 
 ## Локальный запуск через Docker Compose
 
@@ -83,6 +93,8 @@ HTTP/1.1 200 OK
   "status": "ok",
   "details": {
     "postgres": "ok",
+    "rabbitmq": "ok",
+    "s3": "ok",
     "server": "ok"
   }
 }
@@ -92,20 +104,20 @@ HTTP/1.1 200 OK
 #### Для PNG:
 ``` bash
 curl -i -X POST http://localhost:9090/api/v1/avatars \
-  -H "X-User-ID: sergey" \
+  -H "X-User-ID: user" \
   -F "file=@avatar.png;type=image/png"
 ```
 #### Для JPEG:
 ``` bash
 curl -i -X POST http://localhost:9090/api/v1/avatars \
-  -H "X-User-ID: sergey" \
+  -H "X-User-ID: user" \
   -F "file=@avatar.jpg;type=image/jpeg"
 ```
 #### Пример успешного ответа:
 ``` bash
 {
   "id": "avatar-id",
-  "user_id": "sergey",
+  "user_id": "user",
   "url": "/api/v1/avatars/avatar-id",
   "status": "pending",
   "created_at": "2026-05-10T08:00:00Z"
@@ -148,7 +160,7 @@ curl -i http://localhost:9090/api/v1/avatars/<avatar_id>/metadata
 ``` bash
 {
   "id": "avatar-id",
-  "user_id": "sergey",
+  "user_id": "user",
   "file_name": "avatar.png",
   "mime_type": "image/png",
   "size": 12345,
@@ -173,23 +185,23 @@ curl -i http://localhost:9090/api/v1/avatars/<avatar_id>/metadata
 
 ### Получение текущей аватарки пользователя
 ``` bash
-curl -sS -L http://localhost:9090/api/v1/users/sergey/avatar \
-  --output sergey_current_avatar.jpg
+curl -sS -L http://localhost:9090/api/v1/users/user/avatar \
+  --output user_current_avatar.jpg
   ```
 
 ### Получение списка аватарок пользователя
 ``` bash
-curl -i http://localhost:9090/api/v1/users/sergey/avatars
+curl -i http://localhost:9090/api/v1/users/user/avatars
 ```
 ``` bash
 Пример ответа:
 
 {
-  "user_id": "sergey",
+  "user_id": "user",
   "avatars": [
     {
       "id": "avatar-id",
-      "user_id": "sergey",
+      "user_id": "user",
       "file_name": "avatar.png",
       "mime_type": "image/png",
       "size": 12345,
@@ -217,7 +229,7 @@ curl -i http://localhost:9090/api/v1/users/sergey/avatars
 ### Мягкое удаление аватарки по avatar_id
 ``` bash
 curl -i -X DELETE http://localhost:9090/api/v1/avatars/<avatar_id> \
-  -H "X-User-ID: sergey"
+  -H "X-User-ID: user"
 ```
 #### Ожидаемо:
 ``` bash
@@ -226,10 +238,27 @@ HTTP/1.1 204 No Content
 
 ### Удаление текущей аватарки пользователя
 ``` bash
-curl -i -X DELETE http://localhost:9090/api/v1/users/sergey/avatar \
-  -H "X-User-ID: sergey"
+curl -i -X DELETE http://localhost:9090/api/v1/users/user/avatar \
+  -H "X-User-ID: user"
 ```
 #### Ожидаемо:
 ``` bash
 HTTP/1.1 204 No Content
 ```
+
+### Проверка через браузер
+
+#### Откройте:
+
+http://localhost:9090/web/upload
+
+#### Укажите:
+
+User ID: user
+
+#### Выберите изображение и нажмите загрузку.
+
+#### После успешной загрузки можно открыть галерею:
+
+http://localhost:9090/web/gallery/user
+
