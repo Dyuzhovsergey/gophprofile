@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,28 +22,10 @@ type WebAvatarManager interface {
 type WebHandler struct {
 	avatarService      WebAvatarManager
 	maxUploadSizeBytes int64
-	templates          *template.Template
 }
 
 // NewWebHandler создаёт обработчик веб-интерфейса.
-func NewWebHandler(avatarService WebAvatarManager, maxUploadSizeBytes int64) (*WebHandler, error) {
-	templates, err := template.ParseFiles(
-		"web/templates/upload.html",
-		"web/templates/gallery.html",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("parse web templates: %w", err)
-	}
-
-	return newWebHandlerWithTemplates(avatarService, maxUploadSizeBytes, templates), nil
-}
-
-// newWebHandlerWithTemplates создаёт WebHandler с уже подготовленными шаблонами.
-func newWebHandlerWithTemplates(
-	avatarService WebAvatarManager,
-	maxUploadSizeBytes int64,
-	templates *template.Template,
-) *WebHandler {
+func NewWebHandler(avatarService WebAvatarManager, maxUploadSizeBytes int64) *WebHandler {
 	if maxUploadSizeBytes <= 0 {
 		maxUploadSizeBytes = services.DefaultMaxUploadSizeBytes
 	}
@@ -53,40 +33,36 @@ func newWebHandlerWithTemplates(
 	return &WebHandler{
 		avatarService:      avatarService,
 		maxUploadSizeBytes: maxUploadSizeBytes,
-		templates:          templates,
 	}
 }
 
-// UploadPage отображает HTML-форму загрузки аватарки.
+// UploadPage отдаёт готовую страницу загрузки из web/static/index.html.
 func (h *WebHandler) UploadPage(w http.ResponseWriter, r *http.Request) {
-	h.renderUploadPage(w, uploadPageData{})
+	http.ServeFile(w, r, "web/static/index.html")
 }
 
-// Upload обрабатывает загрузку аватарки из HTML-формы.
+// Upload обрабатывает загрузку аватарки через web endpoint.
 func (h *WebHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadSizeBytes)
 
 	if err := r.ParseMultipartForm(h.maxUploadSizeBytes); err != nil {
-		h.renderUploadPage(w, uploadPageData{
-			Error: "Не удалось прочитать форму. Проверьте размер файла.",
-		})
+		http.Error(w, "failed to parse multipart form", http.StatusBadRequest)
 		return
 	}
 
 	userID := strings.TrimSpace(r.FormValue("user_id"))
 	if userID == "" {
-		h.renderUploadPage(w, uploadPageData{
-			Error: "Укажите User ID.",
-		})
+		userID = strings.TrimSpace(r.FormValue("userId"))
+	}
+
+	if userID == "" {
+		http.Error(w, "user_id is required", http.StatusBadRequest)
 		return
 	}
 
-	file, fileHeader, err := r.FormFile("file")
+	file, fileHeader, err := formFileByNames(r, "file", "image")
 	if err != nil {
-		h.renderUploadPage(w, uploadPageData{
-			UserID: userID,
-			Error:  "Выберите файл аватарки.",
-		})
+		http.Error(w, "file is required", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
@@ -99,10 +75,7 @@ func (h *WebHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		Body:      file,
 	})
 	if err != nil {
-		h.renderUploadPage(w, uploadPageData{
-			UserID: userID,
-			Error:  webUploadErrorMessage(err),
-		})
+		http.Error(w, "failed to upload avatar", http.StatusBadRequest)
 		return
 	}
 
@@ -115,7 +88,7 @@ func (h *WebHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
-// Gallery отображает галерею активных аватарок пользователя.
+// Gallery отображает простую HTML-галерею активных аватарок пользователя.
 func (h *WebHandler) Gallery(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(chi.URLParam(r, "user_id"))
 	if userID == "" {
@@ -129,56 +102,52 @@ func (h *WebHandler) Gallery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.renderGalleryPage(w, galleryPageData{
-		UserID:     userID,
-		UploadedID: strings.TrimSpace(r.URL.Query().Get("uploaded")),
-		Avatars:    buildAvatarMetadataResponses(avatars),
-	})
-}
-
-// uploadPageData содержит данные страницы загрузки.
-type uploadPageData struct {
-	UserID string
-	Error  string
-}
-
-// galleryPageData содержит данные страницы галереи.
-type galleryPageData struct {
-	UserID     string
-	UploadedID string
-	Avatars    []AvatarMetadataResponse
-}
-
-// renderUploadPage рендерит страницу загрузки.
-func (h *WebHandler) renderUploadPage(w http.ResponseWriter, data uploadPageData) {
-	h.renderTemplate(w, "upload.html", data)
-}
-
-// renderGalleryPage рендерит страницу галереи.
-func (h *WebHandler) renderGalleryPage(w http.ResponseWriter, data galleryPageData) {
-	h.renderTemplate(w, "gallery.html", data)
-}
-
-// renderTemplate выполняет HTML-шаблон.
-func (h *WebHandler) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if err := h.templates.ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, "failed to render page", http.StatusInternalServerError)
+	fmt.Fprintf(w, "<!doctype html>")
+	fmt.Fprintf(w, "<html lang=\"ru\">")
+	fmt.Fprintf(w, "<head>")
+	fmt.Fprintf(w, "<meta charset=\"utf-8\">")
+	fmt.Fprintf(w, "<title>GophProfile gallery</title>")
+	fmt.Fprintf(w, "</head>")
+	fmt.Fprintf(w, "<body>")
+	fmt.Fprintf(w, "<h1>Галерея пользователя %s</h1>", userID)
+	fmt.Fprintf(w, "<p><a href=\"/web/upload\">Загрузить новую аватарку</a></p>")
+
+	uploadedID := strings.TrimSpace(r.URL.Query().Get("uploaded"))
+	if uploadedID != "" {
+		fmt.Fprintf(w, "<p>Загружена аватарка: %s</p>", uploadedID)
+	}
+
+	if len(avatars) == 0 {
+		fmt.Fprintf(w, "<p>Активных аватарок пока нет.</p>")
+		fmt.Fprintf(w, "</body></html>")
 		return
 	}
-}
 
-// webUploadErrorMessage возвращает пользовательское сообщение об ошибке загрузки.
-func webUploadErrorMessage(err error) string {
-	switch {
-	case errors.Is(err, domain.ErrMissingUserID):
-		return "Укажите User ID."
-	case errors.Is(err, domain.ErrFileTooLarge):
-		return "Файл слишком большой. Максимальный размер — 10 MB."
-	case errors.Is(err, domain.ErrInvalidFile):
-		return "Неверный формат файла. Поддерживаются JPEG, PNG и WebP."
-	default:
-		return "Не удалось загрузить аватарку."
+	fmt.Fprintf(w, "<ul>")
+
+	for _, avatar := range avatars {
+		fmt.Fprintf(w, "<li>")
+		fmt.Fprintf(w, "<h2>%s</h2>", avatar.FileName)
+		fmt.Fprintf(
+			w,
+			"<img src=\"/api/v1/avatars/%s?size=100x100\" width=\"100\" height=\"100\" alt=\"avatar\">",
+			avatar.ID,
+		)
+		fmt.Fprintf(w, "<p>ID: %s</p>", avatar.ID)
+		fmt.Fprintf(w, "<p>MIME-type: %s</p>", avatar.MIMEType)
+		fmt.Fprintf(w, "<p>Size: %d bytes</p>", avatar.SizeBytes)
+		fmt.Fprintf(w, "<p>Dimensions: %dx%d</p>", avatar.Width, avatar.Height)
+		fmt.Fprintf(w, "<p>")
+		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s\" target=\"_blank\">original</a> | ", avatar.ID)
+		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s?size=100x100\" target=\"_blank\">100x100</a> | ", avatar.ID)
+		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s?size=300x300\" target=\"_blank\">300x300</a> | ", avatar.ID)
+		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s/metadata\" target=\"_blank\">metadata</a>", avatar.ID)
+		fmt.Fprintf(w, "</p>")
+		fmt.Fprintf(w, "</li>")
 	}
+
+	fmt.Fprintf(w, "</ul>")
+	fmt.Fprintf(w, "</body></html>")
 }

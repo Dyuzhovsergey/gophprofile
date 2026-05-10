@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"html/template"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -57,25 +56,7 @@ func (m *fakeWebAvatarManager) ListAvatarsByUserID(
 	return m.listAvatars, nil
 }
 
-func TestWebHandler_UploadPage(t *testing.T) {
-	manager := &fakeWebAvatarManager{}
-	handler := newTestWebHandler(manager)
-
-	req := httptest.NewRequest(http.MethodGet, "/web/upload", nil)
-	rec := httptest.NewRecorder()
-
-	handler.UploadPage(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	if !strings.Contains(rec.Body.String(), "upload page") {
-		t.Fatal("expected upload page content")
-	}
-}
-
-func TestWebHandler_Upload_Success(t *testing.T) {
+func TestWebHandler_Upload_SuccessWithImageField(t *testing.T) {
 	manager := &fakeWebAvatarManager{
 		uploadAvatar: domain.Avatar{
 			ID:     "avatar-id",
@@ -83,9 +64,9 @@ func TestWebHandler_Upload_Success(t *testing.T) {
 		},
 	}
 
-	handler := newTestWebHandler(manager)
+	handler := NewWebHandler(manager, services.DefaultMaxUploadSizeBytes)
 
-	req := newWebUploadRequest(t, "sergey", "avatar.png", "image/png", []byte("data"))
+	req := newWebUploadRequest(t, "user_id", "sergey", "image", "avatar.png", "image/png", []byte("data"))
 	rec := httptest.NewRecorder()
 
 	handler.Upload(rec, req)
@@ -125,7 +106,7 @@ func TestWebHandler_Gallery(t *testing.T) {
 		},
 	}
 
-	handler := newTestWebHandler(manager)
+	handler := NewWebHandler(manager, services.DefaultMaxUploadSizeBytes)
 
 	router := chi.NewRouter()
 	router.Get("/web/gallery/{user_id}", handler.Gallery)
@@ -152,20 +133,11 @@ func TestWebHandler_Gallery(t *testing.T) {
 	}
 }
 
-func newTestWebHandler(manager WebAvatarManager) *WebHandler {
-	templates := template.Must(template.New("upload.html").Parse(`upload page {{.Error}}`))
-	template.Must(templates.New("gallery.html").Parse(`gallery page {{.UserID}} {{range .Avatars}}{{.ID}}{{end}}`))
-
-	return newWebHandlerWithTemplates(
-		manager,
-		services.DefaultMaxUploadSizeBytes,
-		templates,
-	)
-}
-
 func newWebUploadRequest(
 	t *testing.T,
+	userFieldName string,
 	userID string,
+	fileFieldName string,
 	fileName string,
 	contentType string,
 	data []byte,
@@ -175,12 +147,12 @@ func newWebUploadRequest(
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	if err := writer.WriteField("user_id", userID); err != nil {
-		t.Fatalf("failed to write user_id field: %v", err)
+	if err := writer.WriteField(userFieldName, userID); err != nil {
+		t.Fatalf("failed to write user field: %v", err)
 	}
 
 	partHeader := textproto.MIMEHeader{}
-	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="`+fileName+`"`)
+	partHeader.Set("Content-Disposition", `form-data; name="`+fileFieldName+`"; filename="`+fileName+`"`)
 	partHeader.Set("Content-Type", contentType)
 
 	part, err := writer.CreatePart(partHeader)

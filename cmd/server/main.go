@@ -66,7 +66,7 @@ func main() {
 		cfg.MaxUploadSizeBytes,
 	)
 
-	webHandler, err := handlers.NewWebHandler(
+	webHandler := handlers.NewWebHandler(
 		avatarService,
 		cfg.MaxUploadSizeBytes,
 	)
