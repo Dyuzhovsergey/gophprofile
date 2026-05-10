@@ -108,3 +108,14 @@ func isNotFoundError(err error) bool {
 		return false
 	}
 }
+
+// Ping проверяет доступность S3 bucket.
+func (c *Client) Ping(ctx context.Context) error {
+	if _, err := c.client.HeadBucket(ctx, &awss3.HeadBucketInput{
+		Bucket: aws.String(c.bucket),
+	}); err != nil {
+		return fmt.Errorf("head s3 bucket: %w", err)
+	}
+
+	return nil
+}
