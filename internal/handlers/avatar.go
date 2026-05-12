@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -371,7 +372,7 @@ func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
 // handleMultipartError обрабатывает ошибки чтения multipart/form-data.
 func (h *AvatarHandler) handleMultipartError(w http.ResponseWriter, err error) {
 	var maxBytesErr *http.MaxBytesError
-	if errors.As(err, &maxBytesErr) || strings.Contains(err.Error(), "request body too large") {
+	if errors.As(err, &maxBytesErr) {
 		writeJSONError(w, http.StatusRequestEntityTooLarge, ErrorResponse{
 			Error:   "File too large",
 			MaxSize: h.maxUploadSizeBytes,
@@ -464,7 +465,7 @@ func writeAvatarBinary(w http.ResponseWriter, result services.DownloadAvatarResu
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(result.Data)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(result.Data)))
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write(result.Data); err != nil {
