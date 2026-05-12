@@ -22,6 +22,8 @@ type fakeAvatarRepository struct {
 	createInput  domain.Avatar
 	createErr    error
 
+	createWithUploadEventCalled bool
+
 	getByIDCalled bool
 	getByIDInput  string
 	getByIDAvatar domain.Avatar
@@ -41,6 +43,8 @@ type fakeAvatarRepository struct {
 	softDeleteInput  string
 	softDeleteAvatar domain.Avatar
 	softDeleteErr    error
+
+	softDeleteWithDeleteEventCalled bool
 }
 
 type fakeAvatarEventPublisher struct {
@@ -75,6 +79,15 @@ func (r *fakeAvatarRepository) Create(ctx context.Context, avatar domain.Avatar)
 	avatar.UpdatedAt = now
 
 	return avatar, nil
+}
+
+func (r *fakeAvatarRepository) CreateWithUploadEvent(
+	ctx context.Context,
+	avatar domain.Avatar,
+) (domain.Avatar, error) {
+	r.createWithUploadEventCalled = true
+
+	return r.Create(ctx, avatar)
 }
 
 func (r *fakeAvatarRepository) GetByID(ctx context.Context, id string) (domain.Avatar, error) {
@@ -134,6 +147,15 @@ func (r *fakeAvatarRepository) SoftDelete(ctx context.Context, id string) (domai
 		UserID:    userID,
 		DeletedAt: &deletedAt,
 	}, nil
+}
+
+func (r *fakeAvatarRepository) SoftDeleteWithDeleteEvent(
+	ctx context.Context,
+	id string,
+) (domain.Avatar, error) {
+	r.softDeleteWithDeleteEventCalled = true
+
+	return r.SoftDelete(ctx, id)
 }
 
 func (p *fakeAvatarEventPublisher) PublishAvatarDeleted(
@@ -1044,82 +1066,6 @@ func TestAvatarService_DeleteCurrentAvatarByUserID_NotFound(t *testing.T) {
 	}
 }
 
-func TestAvatarService_UploadAvatar_PublishesUploadEvent(t *testing.T) {
-	repo := &fakeAvatarRepository{}
-	storage := &fakeAvatarStorage{}
-	publisher := &fakeAvatarEventPublisher{}
-
-	service := NewAvatarServiceWithPublisher(
-		repo,
-		storage,
-		publisher,
-		DefaultMaxUploadSizeBytes,
-	)
-
-	avatar, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
-		UserID:    "sergey",
-		FileName:  "avatar.jpg",
-		MIMEType:  "image/jpeg",
-		SizeBytes: int64(len(testJPEGAvatar)),
-		Body:      bytes.NewReader(testJPEGAvatar),
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !publisher.called {
-		t.Fatal("expected publisher to be called")
-	}
-
-	if publisher.event.AvatarID != avatar.ID {
-		t.Fatalf("unexpected event avatar id: got %q, want %q", publisher.event.AvatarID, avatar.ID)
-	}
-
-	if publisher.event.UserID != "sergey" {
-		t.Fatalf("unexpected event user id: got %q, want %q", publisher.event.UserID, "sergey")
-	}
-
-	if publisher.event.S3Key != avatar.S3Key {
-		t.Fatalf("unexpected event s3 key: got %q, want %q", publisher.event.S3Key, avatar.S3Key)
-	}
-}
-
-func TestAvatarService_UploadAvatar_PublisherError(t *testing.T) {
-	publisherErr := errors.New("publish failed")
-
-	repo := &fakeAvatarRepository{}
-	storage := &fakeAvatarStorage{}
-	publisher := &fakeAvatarEventPublisher{
-		err: publisherErr,
-	}
-
-	service := NewAvatarServiceWithPublisher(
-		repo,
-		storage,
-		publisher,
-		DefaultMaxUploadSizeBytes,
-	)
-
-	_, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
-		UserID:    "sergey",
-		FileName:  "avatar.jpg",
-		MIMEType:  "image/jpeg",
-		SizeBytes: int64(len(testJPEGAvatar)),
-		Body:      bytes.NewReader(testJPEGAvatar),
-	})
-	if !errors.Is(err, publisherErr) {
-		t.Fatalf("expected publisher error, got %v", err)
-	}
-
-	if !publisher.called {
-		t.Fatal("expected publisher to be called")
-	}
-
-	if storage.deleteCalled {
-		t.Fatal("did not expect storage cleanup after publisher error")
-	}
-}
-
 func TestAvatarService_GetAvatarThumbnailByID_Success(t *testing.T) {
 	repo := &fakeAvatarRepository{
 		getByIDAvatar: domain.Avatar{
@@ -1316,5 +1262,27 @@ func TestAvatarService_UploadAvatar_WebPMagicBytes(t *testing.T) {
 
 	if !storage.uploadCalled {
 		t.Fatal("expected storage upload to be called")
+	}
+}
+
+func TestAvatarService_UploadAvatar_UsesCreateWithUploadEvent(t *testing.T) {
+	repo := &fakeAvatarRepository{}
+	storage := &fakeAvatarStorage{}
+
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.UploadAvatar(context.Background(), UploadAvatarInput{
+		UserID:    "sergey",
+		FileName:  "avatar.jpg",
+		MIMEType:  "image/jpeg",
+		SizeBytes: int64(len(testJPEGAvatar)),
+		Body:      bytes.NewReader(testJPEGAvatar),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.createWithUploadEventCalled {
+		t.Fatal("expected CreateWithUploadEvent to be called")
 	}
 }

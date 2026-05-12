@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,6 +24,11 @@ const outboxEventColumns = `
 	created_at,
 	updated_at
 `
+
+// queryRower описывает общий интерфейс для pgxpool.Pool и pgx.Tx.
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 type pgxRow interface {
 	Scan(dest ...any) error
@@ -44,6 +50,16 @@ func NewOutboxRepository(db *pgxpool.Pool) *OutboxRepository {
 
 // Create создаёт outbox-событие.
 func (r *OutboxRepository) Create(ctx context.Context, event domain.OutboxEvent) (domain.OutboxEvent, error) {
+	return createOutboxEvent(ctx, r.db, event)
+}
+
+// createOutboxEvent создаёт outbox-событие через переданный executor.
+// Executor может быть обычным pool или транзакцией.
+func createOutboxEvent(
+	ctx context.Context,
+	db queryRower,
+	event domain.OutboxEvent,
+) (domain.OutboxEvent, error) {
 	event = prepareOutboxEventForCreate(event)
 
 	if !event.EventType.IsValid() {
@@ -68,7 +84,7 @@ func (r *OutboxRepository) Create(ctx context.Context, event domain.OutboxEvent)
 		VALUES ($1, $2, $3, $4)
 		RETURNING ` + outboxEventColumns
 
-	createdEvent, err := scanOutboxEvent(r.db.QueryRow(
+	createdEvent, err := scanOutboxEvent(db.QueryRow(
 		ctx,
 		query,
 		string(event.EventType),

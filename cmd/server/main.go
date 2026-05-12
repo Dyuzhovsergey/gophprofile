@@ -64,10 +64,9 @@ func main() {
 
 	log.Info("rabbitmq publisher created")
 
-	avatarService := services.NewAvatarServiceWithPublisher(
+	avatarService := services.NewAvatarService(
 		avatarRepository,
 		avatarStorage,
-		avatarEventPublisher,
 		cfg.MaxUploadSizeBytes,
 	)
 

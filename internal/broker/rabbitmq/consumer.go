@@ -78,50 +78,6 @@ func NewConsumer(cfg config.RabbitMQConfig) (*Consumer, error) {
 	return consumer, nil
 }
 
-// ConsumeAvatarUploaded читает события avatar.uploaded и передаёт их handler-у.
-func (c *Consumer) ConsumeAvatarUploaded(ctx context.Context, handler AvatarUploadHandler) error {
-	deliveries, err := c.channel.ConsumeWithContext(
-		ctx,
-		c.uploadQueue,
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("consume avatar uploaded queue: %w", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-
-		case delivery, ok := <-deliveries:
-			if !ok {
-				return nil
-			}
-
-			var event domain.AvatarUploadEvent
-			if err := json.Unmarshal(delivery.Body, &event); err != nil {
-				_ = delivery.Nack(false, false)
-				continue
-			}
-
-			if err := handler(ctx, event); err != nil {
-				_ = delivery.Nack(false, false)
-				continue
-			}
-
-			if err := delivery.Ack(false); err != nil {
-				return fmt.Errorf("ack avatar uploaded event: %w", err)
-			}
-		}
-	}
-}
-
 // Close закрывает канал и соединение с RabbitMQ.
 func (c *Consumer) Close() error {
 	var resultErr error

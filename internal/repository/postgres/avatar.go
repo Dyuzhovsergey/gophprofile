@@ -42,7 +42,59 @@ func NewAvatarRepository(db *pgxpool.Pool) *AvatarRepository {
 }
 
 // Create создаёт запись аватарки и возвращает её с данными, заполненными базой.
+// Create создаёт запись аватарки и возвращает её с данными, заполненными базой.
 func (r *AvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
+	return createAvatar(ctx, r.db, avatar)
+}
+
+// CreateWithUploadEvent создаёт аватарку и outbox-событие avatar.uploaded в одной транзакции.
+func (r *AvatarRepository) CreateWithUploadEvent(
+	ctx context.Context,
+	avatar domain.Avatar,
+) (domain.Avatar, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return domain.Avatar{}, fmt.Errorf("begin create avatar transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	createdAvatar, err := createAvatar(ctx, tx, avatar)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	payload, err := json.Marshal(domain.AvatarUploadEvent{
+		AvatarID: createdAvatar.ID,
+		UserID:   createdAvatar.UserID,
+		S3Key:    createdAvatar.S3Key,
+	})
+	if err != nil {
+		return domain.Avatar{}, fmt.Errorf("marshal avatar uploaded event: %w", err)
+	}
+
+	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
+		EventType: domain.OutboxEventTypeAvatarUploaded,
+		Payload:   payload,
+	}); err != nil {
+		return domain.Avatar{}, fmt.Errorf("create avatar uploaded outbox event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Avatar{}, fmt.Errorf("commit create avatar transaction: %w", err)
+	}
+
+	return createdAvatar, nil
+}
+
+// createAvatar создаёт запись аватарки через переданный executor.
+// Executor может быть обычным pool или транзакцией.
+func createAvatar(
+	ctx context.Context,
+	db queryRower,
+	avatar domain.Avatar,
+) (domain.Avatar, error) {
 	avatar = prepareAvatarForCreate(avatar)
 
 	if !avatar.UploadStatus.IsValid() {
@@ -87,7 +139,7 @@ func (r *AvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (do
 		)
 		RETURNING ` + avatarColumns
 
-	createdAvatar, err := scanAvatar(r.db.QueryRow(
+	createdAvatar, err := scanAvatar(db.QueryRow(
 		ctx,
 		query,
 		avatar.ID,
@@ -181,7 +233,58 @@ func (r *AvatarRepository) ListByUserID(ctx context.Context, userID string) ([]d
 
 // SoftDelete мягко удаляет аватарку и возвращает удалённую запись.
 // Физическое удаление файлов из S3 позже будет делать worker.
+// SoftDelete мягко удаляет аватарку и возвращает удалённую запись.
+// Физическое удаление файлов из S3 позже будет делать worker.
 func (r *AvatarRepository) SoftDelete(ctx context.Context, id string) (domain.Avatar, error) {
+	return softDeleteAvatar(ctx, r.db, id)
+}
+
+// SoftDeleteWithDeleteEvent мягко удаляет аватарку и создаёт outbox-событие avatar.deleted в одной транзакции.
+func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id string) (domain.Avatar, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return domain.Avatar{}, fmt.Errorf("begin soft delete avatar transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	deletedAvatar, err := softDeleteAvatar(ctx, tx, id)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	payload, err := json.Marshal(domain.AvatarDeletedEvent{
+		AvatarID:        deletedAvatar.ID,
+		UserID:          deletedAvatar.UserID,
+		S3Key:           deletedAvatar.S3Key,
+		ThumbnailS3Keys: deletedAvatar.ThumbnailS3Keys,
+	})
+	if err != nil {
+		return domain.Avatar{}, fmt.Errorf("marshal avatar deleted event: %w", err)
+	}
+
+	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
+		EventType: domain.OutboxEventTypeAvatarDeleted,
+		Payload:   payload,
+	}); err != nil {
+		return domain.Avatar{}, fmt.Errorf("create avatar deleted outbox event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Avatar{}, fmt.Errorf("commit soft delete avatar transaction: %w", err)
+	}
+
+	return deletedAvatar, nil
+}
+
+// softDeleteAvatar мягко удаляет аватарку через переданный executor.
+// Executor может быть обычным pool или транзакцией.
+func softDeleteAvatar(
+	ctx context.Context,
+	db queryRower,
+	id string,
+) (domain.Avatar, error) {
 	query := `
 		UPDATE avatars
 		SET
@@ -191,7 +294,7 @@ func (r *AvatarRepository) SoftDelete(ctx context.Context, id string) (domain.Av
 			AND deleted_at IS NULL
 		RETURNING ` + avatarColumns
 
-	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, id))
+	avatar, err := scanAvatar(db.QueryRow(ctx, query, id))
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
