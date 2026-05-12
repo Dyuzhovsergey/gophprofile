@@ -29,4 +29,13 @@ var (
 
 	// ErrThumbnailNotFound означает, что миниатюра не найдена.
 	ErrThumbnailNotFound = errors.New("thumbnail not found")
+
+	// ErrInvalidOutboxEventType означает, что передан неизвестный тип outbox-события.
+	ErrInvalidOutboxEventType = errors.New("invalid outbox event type")
+
+	// ErrInvalidOutboxEventStatus означает, что передан неизвестный статус outbox-события.
+	ErrInvalidOutboxEventStatus = errors.New("invalid outbox event status")
+
+	// ErrInvalidOutboxPayload означает, что payload outbox-события пустой или некорректный.
+	ErrInvalidOutboxPayload = errors.New("invalid outbox payload")
 )
