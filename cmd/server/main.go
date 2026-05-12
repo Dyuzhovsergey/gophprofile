@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/broker/rabbitmq"
@@ -16,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const gracefulShutdownTimeout = 10 * time.Second
+
 func main() {
 	cfg := config.LoadServer()
 
@@ -27,7 +32,15 @@ func main() {
 		_ = log.Sync()
 	}()
 
-	db, err := postgres.NewPool(context.Background(), cfg.DatabaseDSN)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+		syscall.SIGINT,
+	)
+	defer stop()
+
+	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
 		log.Fatal("failed to connect to postgres", zap.Error(err))
 	}
@@ -37,7 +50,7 @@ func main() {
 
 	avatarRepository := postgres.NewAvatarRepository(db)
 
-	avatarStorage, err := s3storage.NewClient(context.Background(), cfg.S3)
+	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
 		log.Fatal("failed to create s3 storage client", zap.Error(err))
 	}
@@ -78,8 +91,8 @@ func main() {
 		avatarStorage,
 		avatarEventPublisher,
 	)
-
 	router := handlers.NewRouter(log, healthHandler, avatarHandler, webHandler)
+
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           router,
@@ -92,7 +105,40 @@ func main() {
 		zap.String("log_level", cfg.LogLevel),
 	)
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	serverErr := make(chan error, 1)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+			return
+		}
+
+		serverErr <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Info("shutdown signal received")
+
+	case err := <-serverErr:
+		if err != nil {
+			log.Fatal("GophProfile server stopped with error", zap.Error(err))
+		}
+
+		log.Info("GophProfile server stopped")
+		return
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatal("failed to shutdown GophProfile server gracefully", zap.Error(err))
+	}
+
+	if err := <-serverErr; err != nil {
 		log.Fatal("GophProfile server stopped with error", zap.Error(err))
 	}
+
+	log.Info("GophProfile server stopped gracefully")
 }
