@@ -68,7 +68,7 @@ services:
       "
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3.12-management
     container_name: gophprofile-rabbitmq
     ports:
       - "5672:5672"
