@@ -44,13 +44,19 @@ services:
       - "9001:9001"
     volumes:
       - gophprofile_minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1 && mc ready local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s  
 
   minio-init:
     image: minio/mc:latest
     container_name: gophprofile-minio-init
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
       until mc alias set local http://minio:9000 minioadmin minioadmin; do
