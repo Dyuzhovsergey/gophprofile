@@ -86,6 +86,16 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return fmt.Errorf("get avatar metadata: %w", err)
 	}
 
+	if avatar.IsDeleted() {
+		p.log.Info(
+			"avatar is deleted, skipping uploaded event",
+			zap.String("avatar_id", avatar.ID),
+			zap.String("user_id", avatar.UserID),
+		)
+
+		return nil
+	}
+
 	if avatar.ProcessingStatus == domain.ProcessingStatusCompleted {
 		p.log.Info(
 			"avatar processing already completed, skipping event",

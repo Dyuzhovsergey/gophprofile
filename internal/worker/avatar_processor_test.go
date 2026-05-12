@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
@@ -397,5 +398,52 @@ func TestAvatarProcessor_HandleAvatarDeleted_Success(t *testing.T) {
 		if !deleted {
 			t.Fatalf("expected key to be deleted: %q", key)
 		}
+	}
+}
+
+func TestAvatarProcessor_HandleAvatarUploaded_DeletedAvatarSkipsProcessing(t *testing.T) {
+	deletedAt := time.Now()
+
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:        "avatar-id",
+			UserID:    "sergey",
+			S3Key:     "originals/avatar-id/avatar.jpg",
+			DeletedAt: &deletedAt,
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	imageProcessor := &fakeImageProcessor{}
+
+	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+
+	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
+		AvatarID: "avatar-id",
+		UserID:   "sergey",
+		S3Key:    "originals/avatar-id/avatar.jpg",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.getByIDCalled {
+		t.Fatal("expected GetByID to be called")
+	}
+
+	if len(repo.updateStatuses) != 0 {
+		t.Fatalf("did not expect processing status update, got %d updates", len(repo.updateStatuses))
+	}
+
+	if storage.downloadCalled {
+		t.Fatal("did not expect original image download")
+	}
+
+	if imageProcessor.processCalled {
+		t.Fatal("did not expect image processing")
+	}
+
+	if repo.updateResultCalled {
+		t.Fatal("did not expect processing result update")
 	}
 }

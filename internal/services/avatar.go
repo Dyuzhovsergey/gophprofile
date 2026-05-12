@@ -317,7 +317,7 @@ func (s *AvatarService) DeleteAvatarByID(
 		return domain.Avatar{}, domain.ErrAvatarDeleted
 	}
 
-	if !avatar.IsOwner(userID) {
+	if avatar.UserID != userID {
 		return domain.Avatar{}, domain.ErrForbidden
 	}
 

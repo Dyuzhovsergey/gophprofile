@@ -161,13 +161,12 @@ func createAvatar(
 	return createdAvatar, nil
 }
 
-// GetByID возвращает неудалённую аватарку по id.
+// GetByID возвращает аватарку по id, включая мягко удалённые записи.
 func (r *AvatarRepository) GetByID(ctx context.Context, id string) (domain.Avatar, error) {
 	query := `
 		SELECT ` + avatarColumns + `
 		FROM avatars
 		WHERE id = $1
-			AND deleted_at IS NULL
 	`
 
 	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, id))

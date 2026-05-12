@@ -1286,3 +1286,23 @@ func TestAvatarService_UploadAvatar_UsesCreateWithUploadEvent(t *testing.T) {
 		t.Fatal("expected CreateWithUploadEvent to be called")
 	}
 }
+
+func TestAvatarService_GetAvatarByID_DeletedAvatar(t *testing.T) {
+	deletedAt := time.Now()
+
+	repo := &fakeAvatarRepository{
+		getByIDAvatar: domain.Avatar{
+			ID:        "avatar-id",
+			UserID:    "sergey",
+			DeletedAt: &deletedAt,
+		},
+	}
+
+	storage := &fakeAvatarStorage{}
+	service := NewAvatarService(repo, storage, DefaultMaxUploadSizeBytes)
+
+	_, err := service.GetAvatarByID(context.Background(), "avatar-id")
+	if !errors.Is(err, domain.ErrAvatarDeleted) {
+		t.Fatalf("expected ErrAvatarDeleted, got %v", err)
+	}
+}
