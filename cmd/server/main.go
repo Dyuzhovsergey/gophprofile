@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/broker/rabbitmq"
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
@@ -18,8 +17,6 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"go.uber.org/zap"
 )
-
-const gracefulShutdownTimeout = 10 * time.Second
 
 func main() {
 	cfg := config.LoadServer()
@@ -96,7 +93,10 @@ func main() {
 	server := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 	}
 
 	log.Info(
@@ -129,7 +129,7 @@ func main() {
 		return
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GracefulShutdownTimeout)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {

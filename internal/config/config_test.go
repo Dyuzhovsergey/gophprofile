@@ -29,6 +29,46 @@ func TestLoadServer_Defaults(t *testing.T) {
 			defaultMaxUploadSizeBytes,
 		)
 	}
+
+	if cfg.GracefulShutdownTimeout != defaultGracefulShutdownTimeout {
+		t.Fatalf(
+			"unexpected graceful shutdown timeout: got %s, want %s",
+			cfg.GracefulShutdownTimeout,
+			defaultGracefulShutdownTimeout,
+		)
+	}
+
+	if cfg.ReadHeaderTimeout != defaultServerReadHeaderTimeout {
+		t.Fatalf(
+			"unexpected read header timeout: got %s, want %s",
+			cfg.ReadHeaderTimeout,
+			defaultServerReadHeaderTimeout,
+		)
+	}
+
+	if cfg.ReadTimeout != defaultServerReadTimeout {
+		t.Fatalf(
+			"unexpected read timeout: got %s, want %s",
+			cfg.ReadTimeout,
+			defaultServerReadTimeout,
+		)
+	}
+
+	if cfg.WriteTimeout != defaultServerWriteTimeout {
+		t.Fatalf(
+			"unexpected write timeout: got %s, want %s",
+			cfg.WriteTimeout,
+			defaultServerWriteTimeout,
+		)
+	}
+
+	if cfg.IdleTimeout != defaultServerIdleTimeout {
+		t.Fatalf(
+			"unexpected idle timeout: got %s, want %s",
+			cfg.IdleTimeout,
+			defaultServerIdleTimeout,
+		)
+	}
 }
 
 func TestLoadServer_FromEnv(t *testing.T) {

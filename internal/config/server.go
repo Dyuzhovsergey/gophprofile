@@ -4,12 +4,19 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
 	defaultServerAddress      = ":8080"
 	defaultLogLevel           = "info"
 	defaultMaxUploadSizeBytes = 10 * 1024 * 1024
+
+	defaultGracefulShutdownTimeout = 10 * time.Second
+	defaultServerReadHeaderTimeout = 5 * time.Second
+	defaultServerReadTimeout       = 30 * time.Second
+	defaultServerWriteTimeout      = 30 * time.Second
+	defaultServerIdleTimeout       = 60 * time.Second
 
 	envServerAddress      = "GOPHPROFILE_SERVER_ADDRESS"
 	envLogLevel           = "GOPHPROFILE_LOG_LEVEL"
@@ -18,13 +25,21 @@ const (
 )
 
 // ServerConfig хранит настройки HTTP-сервера.
+// ServerConfig хранит настройки HTTP-сервера.
 type ServerConfig struct {
 	Address            string
 	LogLevel           string
 	DatabaseDSN        string
 	MaxUploadSizeBytes int64
-	S3                 S3Config
-	RabbitMQ           RabbitMQConfig
+
+	GracefulShutdownTimeout time.Duration
+	ReadHeaderTimeout       time.Duration
+	ReadTimeout             time.Duration
+	WriteTimeout            time.Duration
+	IdleTimeout             time.Duration
+
+	S3       S3Config
+	RabbitMQ RabbitMQConfig
 }
 
 // LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
@@ -34,8 +49,15 @@ func LoadServer() ServerConfig {
 		LogLevel:           getEnv(envLogLevel, defaultLogLevel),
 		DatabaseDSN:        os.Getenv(envDatabaseDSN),
 		MaxUploadSizeBytes: getInt64Env(envMaxUploadSizeBytes, defaultMaxUploadSizeBytes),
-		S3:                 LoadS3(),
-		RabbitMQ:           LoadRabbitMQ(),
+
+		GracefulShutdownTimeout: defaultGracefulShutdownTimeout,
+		ReadHeaderTimeout:       defaultServerReadHeaderTimeout,
+		ReadTimeout:             defaultServerReadTimeout,
+		WriteTimeout:            defaultServerWriteTimeout,
+		IdleTimeout:             defaultServerIdleTimeout,
+
+		S3:       LoadS3(),
+		RabbitMQ: LoadRabbitMQ(),
 	}
 }
 
