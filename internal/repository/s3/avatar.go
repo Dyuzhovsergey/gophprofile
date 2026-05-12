@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,10 +19,16 @@ func (c *Client) Upload(ctx context.Context, key string, body io.Reader, content
 		return ErrEmptyObjectKey
 	}
 
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return fmt.Errorf("read s3 object body: %w", err)
+	}
+
 	input := &awss3.PutObjectInput{
-		Bucket: aws.String(c.bucket),
-		Key:    aws.String(key),
-		Body:   body,
+		Bucket:        aws.String(c.bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(data),
+		ContentLength: aws.Int64(int64(len(data))),
 	}
 
 	if strings.TrimSpace(contentType) != "" {

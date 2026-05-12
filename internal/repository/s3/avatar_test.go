@@ -54,3 +54,22 @@ func TestClient_Exists_EmptyKey(t *testing.T) {
 		t.Fatal("expected exists=false")
 	}
 }
+
+type failingReader struct{}
+
+func (failingReader) Read(p []byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func TestClient_Upload_ReadBodyError(t *testing.T) {
+	client := &Client{}
+
+	err := client.Upload(context.Background(), "avatars/test.jpg", failingReader{}, "image/jpeg")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "read s3 object body") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

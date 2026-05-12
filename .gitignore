@@ -36,6 +36,7 @@ run.md
 
 # Pictures
 *.jpg
+*.jpeg
 *.png
 
 # git
