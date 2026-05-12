@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,54 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
 )
+
+var galleryTemplate = template.Must(template.New("gallery").Parse(`<!doctype html>
+<html lang="ru">
+<head>
+	<meta charset="utf-8">
+	<title>GophProfile gallery</title>
+</head>
+<body>
+	<h1>Галерея пользователя {{.UserID}}</h1>
+
+	<p><a href="/web/upload">Загрузить новую аватарку</a></p>
+
+	{{if .UploadedID}}
+	<p>Загружена аватарка: {{.UploadedID}}</p>
+	{{end}}
+
+	{{if .Avatars}}
+	<ul>
+		{{range .Avatars}}
+		<li>
+			<h2>{{.FileName}}</h2>
+
+			<img
+				src="/api/v1/avatars/{{.ID}}?size=100x100"
+				width="100"
+				height="100"
+				alt="avatar"
+			>
+
+			<p>ID: {{.ID}}</p>
+			<p>MIME-type: {{.MIMEType}}</p>
+			<p>Size: {{.SizeBytes}} bytes</p>
+			<p>Dimensions: {{.Width}}x{{.Height}}</p>
+
+			<p>
+				<a href="/api/v1/avatars/{{.ID}}" target="_blank">original</a> |
+				<a href="/api/v1/avatars/{{.ID}}?size=100x100" target="_blank">100x100</a> |
+				<a href="/api/v1/avatars/{{.ID}}?size=300x300" target="_blank">300x300</a> |
+				<a href="/api/v1/avatars/{{.ID}}/metadata" target="_blank">metadata</a>
+			</p>
+		</li>
+		{{end}}
+	</ul>
+	{{else}}
+	<p>Активных аватарок пока нет.</p>
+	{{end}}
+</body>
+</html>`))
 
 // WebAvatarManager описывает методы сервиса, которые нужны веб-интерфейсу.
 type WebAvatarManager interface {
@@ -22,6 +71,13 @@ type WebAvatarManager interface {
 type WebHandler struct {
 	avatarService      WebAvatarManager
 	maxUploadSizeBytes int64
+}
+
+// galleryViewData содержит данные для HTML-страницы галереи.
+type galleryViewData struct {
+	UserID     string
+	UploadedID string
+	Avatars    []domain.Avatar
 }
 
 // NewWebHandler создаёт обработчик веб-интерфейса.
@@ -104,50 +160,14 @@ func (h *WebHandler) Gallery(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	fmt.Fprintf(w, "<!doctype html>")
-	fmt.Fprintf(w, "<html lang=\"ru\">")
-	fmt.Fprintf(w, "<head>")
-	fmt.Fprintf(w, "<meta charset=\"utf-8\">")
-	fmt.Fprintf(w, "<title>GophProfile gallery</title>")
-	fmt.Fprintf(w, "</head>")
-	fmt.Fprintf(w, "<body>")
-	fmt.Fprintf(w, "<h1>Галерея пользователя %s</h1>", userID)
-	fmt.Fprintf(w, "<p><a href=\"/web/upload\">Загрузить новую аватарку</a></p>")
-
-	uploadedID := strings.TrimSpace(r.URL.Query().Get("uploaded"))
-	if uploadedID != "" {
-		fmt.Fprintf(w, "<p>Загружена аватарка: %s</p>", uploadedID)
+	data := galleryViewData{
+		UserID:     userID,
+		UploadedID: strings.TrimSpace(r.URL.Query().Get("uploaded")),
+		Avatars:    avatars,
 	}
 
-	if len(avatars) == 0 {
-		fmt.Fprintf(w, "<p>Активных аватарок пока нет.</p>")
-		fmt.Fprintf(w, "</body></html>")
+	if err := galleryTemplate.Execute(w, data); err != nil {
+		http.Error(w, "failed to render gallery", http.StatusInternalServerError)
 		return
 	}
-
-	fmt.Fprintf(w, "<ul>")
-
-	for _, avatar := range avatars {
-		fmt.Fprintf(w, "<li>")
-		fmt.Fprintf(w, "<h2>%s</h2>", avatar.FileName)
-		fmt.Fprintf(
-			w,
-			"<img src=\"/api/v1/avatars/%s?size=100x100\" width=\"100\" height=\"100\" alt=\"avatar\">",
-			avatar.ID,
-		)
-		fmt.Fprintf(w, "<p>ID: %s</p>", avatar.ID)
-		fmt.Fprintf(w, "<p>MIME-type: %s</p>", avatar.MIMEType)
-		fmt.Fprintf(w, "<p>Size: %d bytes</p>", avatar.SizeBytes)
-		fmt.Fprintf(w, "<p>Dimensions: %dx%d</p>", avatar.Width, avatar.Height)
-		fmt.Fprintf(w, "<p>")
-		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s\" target=\"_blank\">original</a> | ", avatar.ID)
-		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s?size=100x100\" target=\"_blank\">100x100</a> | ", avatar.ID)
-		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s?size=300x300\" target=\"_blank\">300x300</a> | ", avatar.ID)
-		fmt.Fprintf(w, "<a href=\"/api/v1/avatars/%s/metadata\" target=\"_blank\">metadata</a>", avatar.ID)
-		fmt.Fprintf(w, "</p>")
-		fmt.Fprintf(w, "</li>")
-	}
-
-	fmt.Fprintf(w, "</ul>")
-	fmt.Fprintf(w, "</body></html>")
 }
