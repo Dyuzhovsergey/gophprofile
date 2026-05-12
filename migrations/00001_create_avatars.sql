@@ -1,6 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 
+
 CREATE TABLE IF NOT EXISTS avatars (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 

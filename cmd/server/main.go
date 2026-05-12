@@ -12,6 +12,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
@@ -46,6 +47,7 @@ func main() {
 	log.Info("connected to postgres")
 
 	avatarRepository := postgres.NewAvatarRepository(db)
+	outboxRepository := postgres.NewOutboxRepository(db)
 
 	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
@@ -63,6 +65,16 @@ func main() {
 	}()
 
 	log.Info("rabbitmq publisher created")
+
+	outboxDispatcher := outbox.NewDispatcher(
+		outboxRepository,
+		avatarEventPublisher,
+		log,
+	)
+
+	go outboxDispatcher.Run(ctx)
+
+	log.Info("outbox dispatcher started")
 
 	avatarService := services.NewAvatarService(
 		avatarRepository,
