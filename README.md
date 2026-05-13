@@ -1,67 +1,264 @@
-# Шаблонный репозиторий для сервиса "Аватарница"
+# GophProfile
 
-Это шаблонный репозиторий для выпускной работы по курсу "Go-разработчик". Он содержит базовую структуру проекта, готовую к дальнейшей разработке, а также техническое задание и пример веб-интерфейса.
+GophProfile — микросервис для управления аватарками пользователей.
 
-## Описание
+Сервис позволяет:
 
-Проект "Аватарница" — это микросервис для управления аватарками пользователей. Он предоставляет REST API для загрузки, получения и удаления изображений, а также простой веб-интерфейс для взаимодействия с сервисом.
+- загружать аватарку пользователя;
+- получать оригинал аватарки по `avatar_id`;
+- получать текущую аватарку пользователя по `user_id`;
+- получать metadata аватарки;
+- получать список аватарок пользователя;
+- получать thumbnails `100x100` и `300x300`;
+- мягко удалять аватарку;
+- асинхронно обрабатывать изображения через RabbitMQ worker.
+
+## Технологии
+
+- Go
+- Chi
+- Zap
+- PostgreSQL
+- Goose migrations
+- MinIO / S3
+- RabbitMQ
+- Docker Compose
 
 ## Структура проекта
 
-Проект имеет следующую структуру, основанную на лучших практиках разработки на Go:
+```text
+cmd/
+  server/        HTTP-сервер
+  worker/        Фоновый worker
 
+internal/
+  broker/        Работа с RabbitMQ
+  config/        Конфигурация приложения
+  domain/        Доменные сущности и ошибки
+  handlers/      HTTP handlers и router
+  logger/        Zap logger
+  middleware/    HTTP middleware
+  repository/    PostgreSQL и S3 repositories
+  services/      Бизнес-логика
+  worker/        Обработчики фоновых событий
+
+migrations/      SQL-миграции PostgreSQL
+docker/          Dockerfile-ы server и worker
+web/             Статические файлы
 ```
-/
-├── cmd/                # Точки входа в приложение (main.go)
-│   ├── server/         # HTTP-сервер
-│   └── worker/         # Воркер для асинхронной обработки задач
-├── internal/           # Внутренняя логика приложения
-│   ├── api/            # Спецификации API (OpenAPI/Swagger)
-│   ├── config/         # Конфигурация приложения
-│   ├── domain/         # Основные доменные сущности
-│   ├── handlers/       # HTTP-обработчики
-│   ├── repository/     # Работа с хранилищем (БД, S3)
-│   ├── services/       # Бизнес-логика
-│   └── worker/         # Логика воркера
-├── pkg/                # Публичные библиотеки, которые можно использовать в других проектах
-├── web/                # Веб-интерфейс
-│   └── static/         # Статические файлы (HTML, CSS, JS)
-├── migrations/         # Миграции базы данных
-├── docker/             # Docker-файлы и конфигурации
-├── k8s/                # Манифесты Kubernetes
-├── tests/              # Интеграционные и e2e тесты
-├── docs/               # Документация проекта
-└── .gitignore          # Файл для исключения файлов из Git
+## Адреса сервисов
+HTTP API	http://localhost:9090
+Web upload	http://localhost:9090/web/upload
+Web gallery	http://localhost:9090/web/gallery/user
+PostgreSQL	localhost:5433
+MinIO API	http://localhost:9000
+MinIO Console	http://localhost:9001
+RabbitMQ AMQP	localhost:5672
+RabbitMQ Management UI	http://localhost:15672
+
+
+## Локальный запуск через Docker Compose
+
+### Docker Compose поднимает:
+
+PostgreSQL;
+MinIO;
+RabbitMQ;
+goose migration;
+server;
+worker.
+
+### Запуск:
+``` bash
+docker compose up --build -d
 ```
 
-## Как начать работу
+### Остановить инфраструктуру:
+``` bash
+docker compose down -v
+```
+## Проверка API
+### Health check
+``` bash
+curl -i http://localhost:9090/health
+```
+#### Ожидаемый ответ:
+``` bash
+HTTP/1.1 200 OK
+```
 
-1.  **Клонируйте репозиторий:**
-    ```bash
-    git clone <URL этого репозитория>
-    cd go-avatar-service-template
-    ```
+#### Пример тела:
+``` bash
+{
+  "status": "ok",
+  "details": {
+    "postgres": "ok",
+    "rabbitmq": "ok",
+    "s3": "ok",
+    "server": "ok"
+  }
+}
+```
+### Загрузка аватарки
 
-2.  **Инициализируйте свой репозиторий на GitHub:**
-    Следуйте инструкциям GitHub для создания нового репозитория и свяжите его с этим локальным репозиторием.
+#### Для PNG:
+``` bash
+curl -i -X POST http://localhost:9090/api/v1/avatars \
+  -H "X-User-ID: user" \
+  -F "file=@avatar.png;type=image/png"
+```
+#### Для JPEG:
+``` bash
+curl -i -X POST http://localhost:9090/api/v1/avatars \
+  -H "X-User-ID: user" \
+  -F "file=@avatar.jpg;type=image/jpeg"
+```
+#### Пример успешного ответа:
+``` bash
+{
+  "id": "avatar-id",
+  "user_id": "user",
+  "url": "/api/v1/avatars/avatar-id",
+  "status": "pending",
+  "created_at": "2026-05-10T08:00:00Z"
+}
+```
+### Проверка обработки в PostgreSQL
+``` bash
+docker exec -it gophprofile-postgres psql -U gophprofile -d gophprofile -c \
+"select id, s3_key, width, height, thumbnail_s3_keys, processing_status from avatars order by created_at desc limit 5;"
+```
+#### После успешной обработки worker-ом ожидаемо:
+ ``` bash
+processing_status = completed
+width > 0
+height > 0
+thumbnail_s3_keys содержит 100x100 и 300x300
+```
 
-3.  **Установите зависимости:**
-    ```bash
-    go mod tidy
-    ```
+#### Получение оригинала аватарки
+``` bash
+curl -sS -L http://localhost:9090/api/v1/avatars/<avatar_id> \
+  --output original.jpg
+  ```
+#### Получение thumbnail 100x100
+``` bash
+curl -sS -L "http://localhost:9090/api/v1/avatars/<avatar_id>?size=100x100" \
+  --output avatar_100x100.jpg
+  ```
+#### Получение thumbnail 300x300
+``` bash
+curl -sS -L "http://localhost:9090/api/v1/avatars/<avatar_id>?size=300x300" \
+  --output avatar_300x300.jpg
+```
 
-4.  **Настройте окружение:**
-    Создайте файл `.env` на основе `.env.example` (необходимо будет его создать) и укажите необходимые переменные окружения (данные для подключения к БД, S3 и т.д.).
+### Получение metadata аватарки
+``` bash
+curl -i http://localhost:9090/api/v1/avatars/<avatar_id>/metadata
+```
+#### Пример ответа:
+``` bash
+{
+  "id": "avatar-id",
+  "user_id": "user",
+  "file_name": "avatar.png",
+  "mime_type": "image/png",
+  "size": 12345,
+  "dimensions": {
+    "width": 303,
+    "height": 295
+  },
+  "thumbnails": [
+    {
+      "size": "100x100",
+      "url": "/api/v1/avatars/avatar-id?size=100x100"
+    },
+    {
+      "size": "300x300",
+      "url": "/api/v1/avatars/avatar-id?size=300x300"
+    }
+  ],
+  "created_at": "2026-05-10T08:00:00Z",
+  "updated_at": "2026-05-10T08:00:01Z"
+}
+```
 
-5.  **Запустите сервисы с помощью Docker Compose:**
-    ```bash
-    docker-compose up --build
-    ```
+### Получение текущей аватарки пользователя
+``` bash
+curl -sS -L http://localhost:9090/api/v1/users/user/avatar \
+  --output user_current_avatar.jpg
+  ```
 
-После этого сервис будет доступен по адресу `http://localhost:8080`.
+### Получение списка аватарок пользователя
+``` bash
+curl -i http://localhost:9090/api/v1/users/user/avatars
+```
+``` bash
+Пример ответа:
 
-## Веб-интерфейс
+{
+  "user_id": "user",
+  "avatars": [
+    {
+      "id": "avatar-id",
+      "user_id": "user",
+      "file_name": "avatar.png",
+      "mime_type": "image/png",
+      "size": 12345,
+      "dimensions": {
+        "width": 303,
+        "height": 295
+      },
+      "thumbnails": [
+        {
+          "size": "100x100",
+          "url": "/api/v1/avatars/avatar-id?size=100x100"
+        },
+        {
+          "size": "300x300",
+          "url": "/api/v1/avatars/avatar-id?size=300x300"
+        }
+      ],
+      "created_at": "2026-05-10T08:00:00Z",
+      "updated_at": "2026-05-10T08:00:01Z"
+    }
+  ]
+}
+```
 
-Простой одностраничный веб-интерфейс для загрузки аватарок доступен по адресу `http://localhost:8080/`. Он находится в файле `web/static/index.html`.
+### Мягкое удаление аватарки по avatar_id
+``` bash
+curl -i -X DELETE http://localhost:9090/api/v1/avatars/<avatar_id> \
+  -H "X-User-ID: user"
+```
+#### Ожидаемо:
+``` bash
+HTTP/1.1 204 No Content
+```
 
-**Важно:** Этот интерфейс предоставлен для облегчения старта и демонстрации работы API. Вы можете изменять его, адаптировать под свои нужды или полностью заменить на свой собственный фронтенд.
+### Удаление текущей аватарки пользователя
+``` bash
+curl -i -X DELETE http://localhost:9090/api/v1/users/user/avatar \
+  -H "X-User-ID: user"
+```
+#### Ожидаемо:
+``` bash
+HTTP/1.1 204 No Content
+```
+
+### Проверка через браузер
+
+#### Откройте:
+
+http://localhost:9090/web/upload
+
+#### Укажите:
+
+User ID: user
+
+#### Выберите изображение и нажмите загрузку.
+
+#### После успешной загрузки можно открыть галерею:
+
+http://localhost:9090/web/gallery/user
+
