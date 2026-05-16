@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
-	"go.uber.org/zap"
 )
 
 // AvatarRepository описывает методы repository, которые нужны worker-у.
@@ -40,7 +41,7 @@ type ImageProcessor interface {
 
 // AvatarProcessor обрабатывает события, связанные с аватарками.
 type AvatarProcessor struct {
-	log            *zap.Logger
+	log            *slog.Logger
 	repo           AvatarRepository
 	storage        AvatarStorage
 	imageProcessor ImageProcessor
@@ -48,7 +49,7 @@ type AvatarProcessor struct {
 
 // NewAvatarProcessor создаёт обработчик событий аватарок.
 func NewAvatarProcessor(
-	log *zap.Logger,
+	log *slog.Logger,
 	repo AvatarRepository,
 	storage AvatarStorage,
 	imageProcessor ImageProcessor,
@@ -70,17 +71,17 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	p.log.Info(
 		"avatar uploaded event received",
-		zap.String("avatar_id", event.AvatarID),
-		zap.String("user_id", event.UserID),
-		zap.String("s3_key", event.S3Key),
+		slog.String("avatar_id", event.AvatarID),
+		slog.String("user_id", event.UserID),
+		slog.String("s3_key", event.S3Key),
 	)
 
 	avatar, err := p.repo.GetByID(ctx, avatarID)
 	if err != nil {
 		p.log.Error(
 			"failed to get avatar metadata",
-			zap.String("avatar_id", avatarID),
-			zap.Error(err),
+			slog.String("avatar_id", avatarID),
+			logger.Err(err),
 		)
 
 		return fmt.Errorf("get avatar metadata: %w", err)
@@ -89,8 +90,8 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	if avatar.IsDeleted() {
 		p.log.Info(
 			"avatar is deleted, skipping uploaded event",
-			zap.String("avatar_id", avatar.ID),
-			zap.String("user_id", avatar.UserID),
+			slog.String("avatar_id", avatar.ID),
+			slog.String("user_id", avatar.UserID),
 		)
 
 		return nil
@@ -99,9 +100,9 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	if avatar.ProcessingStatus == domain.ProcessingStatusCompleted {
 		p.log.Info(
 			"avatar processing already completed, skipping event",
-			zap.String("avatar_id", avatar.ID),
-			zap.String("user_id", avatar.UserID),
-			zap.String("processing_status", string(avatar.ProcessingStatus)),
+			slog.String("avatar_id", avatar.ID),
+			slog.String("user_id", avatar.UserID),
+			slog.String("processing_status", string(avatar.ProcessingStatus)),
 		)
 
 		return nil
@@ -115,9 +116,9 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	if err != nil {
 		p.log.Error(
 			"failed to download original avatar",
-			zap.String("avatar_id", avatar.ID),
-			zap.String("s3_key", avatar.S3Key),
-			zap.Error(err),
+			slog.String("avatar_id", avatar.ID),
+			slog.String("s3_key", avatar.S3Key),
+			logger.Err(err),
 		)
 
 		p.markProcessingFailed(ctx, avatar.ID)
@@ -129,9 +130,9 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	if err != nil {
 		p.log.Error(
 			"failed to process avatar image",
-			zap.String("avatar_id", avatar.ID),
-			zap.String("s3_key", avatar.S3Key),
-			zap.Error(err),
+			slog.String("avatar_id", avatar.ID),
+			slog.String("s3_key", avatar.S3Key),
+			logger.Err(err),
 		)
 
 		p.markProcessingFailed(ctx, avatar.ID)
@@ -173,10 +174,10 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	p.log.Info(
 		"avatar thumbnails generated",
-		zap.String("avatar_id", avatar.ID),
-		zap.Int("width", result.Width),
-		zap.Int("height", result.Height),
-		zap.Int("thumbnails_count", len(result.Thumbnails)),
+		slog.String("avatar_id", avatar.ID),
+		slog.Int("width", result.Width),
+		slog.Int("height", result.Height),
+		slog.Int("thumbnails_count", len(result.Thumbnails)),
 	)
 
 	return nil
@@ -187,8 +188,8 @@ func (p *AvatarProcessor) markProcessingFailed(ctx context.Context, avatarID str
 	if _, err := p.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed); err != nil {
 		p.log.Error(
 			"failed to mark avatar processing as failed",
-			zap.String("avatar_id", avatarID),
-			zap.Error(err),
+			slog.String("avatar_id", avatarID),
+			logger.Err(err),
 		)
 	}
 }
@@ -215,10 +216,10 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 
 	p.log.Info(
 		"avatar deleted event received",
-		zap.String("avatar_id", event.AvatarID),
-		zap.String("user_id", event.UserID),
-		zap.String("s3_key", event.S3Key),
-		zap.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+		slog.String("avatar_id", event.AvatarID),
+		slog.String("user_id", event.UserID),
+		slog.String("s3_key", event.S3Key),
+		slog.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
 	)
 
 	if strings.TrimSpace(event.S3Key) != "" {
@@ -240,8 +241,8 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 
 	p.log.Info(
 		"avatar files deleted from s3",
-		zap.String("avatar_id", event.AvatarID),
-		zap.String("user_id", event.UserID),
+		slog.String("avatar_id", event.AvatarID),
+		slog.String("user_id", event.UserID),
 	)
 
 	return nil

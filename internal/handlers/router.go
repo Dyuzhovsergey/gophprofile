@@ -1,16 +1,16 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 )
 
 // NewRouter создаёт HTTP-router приложения GophProfile.
 func NewRouter(
-	log *zap.Logger,
+	log *slog.Logger,
 	healthHandler *HealthHandler,
 	avatarHandler *AvatarHandler,
 	webHandler *WebHandler,

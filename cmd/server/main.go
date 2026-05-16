@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,23 +13,24 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
-	"go.uber.org/zap"
 )
 
 func main() {
 	cfg := config.LoadServer()
 
-	log, err := logger.Init(cfg.LogLevel)
+	log, err := logger.Init(
+		cfg.LogLevel,
+		observabilitylogging.ServiceNameServer,
+		observabilitylogging.DefaultEnvironment,
+	)
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		_ = log.Sync()
-	}()
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -40,7 +42,8 @@ func main() {
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
-		log.Fatal("failed to connect to postgres", zap.Error(err))
+		log.Error("failed to connect to postgres", logger.Err(err))
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -51,16 +54,18 @@ func main() {
 
 	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
-		log.Fatal("failed to create s3 storage client", zap.Error(err))
+		log.Error("failed to create s3 storage client", logger.Err(err))
+		os.Exit(1)
 	}
 
 	avatarEventPublisher, err := rabbitmq.NewPublisher(cfg.RabbitMQ)
 	if err != nil {
-		log.Fatal("failed to create rabbitmq publisher", zap.Error(err))
+		log.Error("failed to create rabbitmq publisher", logger.Err(err))
+		os.Exit(1)
 	}
 	defer func() {
 		if err := avatarEventPublisher.Close(); err != nil {
-			log.Error("failed to close rabbitmq publisher", zap.Error(err))
+			log.Error("failed to close rabbitmq publisher", logger.Err(err))
 		}
 	}()
 
@@ -112,8 +117,8 @@ func main() {
 
 	log.Info(
 		"GophProfile server starting",
-		zap.String("address", cfg.Address),
-		zap.String("log_level", cfg.LogLevel),
+		slog.String("address", cfg.Address),
+		slog.String("log_level", cfg.LogLevel),
 	)
 
 	serverErr := make(chan error, 1)
@@ -133,7 +138,8 @@ func main() {
 
 	case err := <-serverErr:
 		if err != nil {
-			log.Fatal("GophProfile server stopped with error", zap.Error(err))
+			log.Error("GophProfile server stopped with error", logger.Err(err))
+			os.Exit(1)
 		}
 
 		log.Info("GophProfile server stopped")
@@ -144,11 +150,13 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatal("failed to shutdown GophProfile server gracefully", zap.Error(err))
+		log.Error("failed to shutdown GophProfile server gracefully", logger.Err(err))
+		os.Exit(1)
 	}
 
 	if err := <-serverErr; err != nil {
-		log.Fatal("GophProfile server stopped with error", zap.Error(err))
+		log.Error("GophProfile server stopped with error", logger.Err(err))
+		os.Exit(1)
 	}
 
 	log.Info("GophProfile server stopped gracefully")

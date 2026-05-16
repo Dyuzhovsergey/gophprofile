@@ -1,10 +1,11 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 )
 
 // responseWriter хранит HTTP-статус ответа для логирования.
@@ -20,7 +21,11 @@ func (w *responseWriter) WriteHeader(statusCode int) {
 }
 
 // RequestLogger логирует информацию о каждом HTTP-запросе.
-func RequestLogger(log *zap.Logger) func(http.Handler) http.Handler {
+func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
+	if log == nil {
+		log = logger.NewNop()
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := time.Now()
@@ -34,10 +39,10 @@ func RequestLogger(log *zap.Logger) func(http.Handler) http.Handler {
 
 			log.Info(
 				"HTTP request completed",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.Int("status", wrappedWriter.statusCode),
-				zap.Duration("duration", time.Since(startedAt)),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", wrappedWriter.statusCode),
+				slog.Duration("duration", time.Since(startedAt)),
 			)
 		})
 	}

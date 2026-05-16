@@ -1,4 +1,4 @@
-// Package logging содержит вспомогательные сущности для observability-логирования.
+// Package logging содержит общие настройки observability-логирования.
 package logging
 
 import "strings"

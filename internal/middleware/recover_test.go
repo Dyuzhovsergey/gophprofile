@@ -5,11 +5,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"go.uber.org/zap"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 )
 
 func TestRecover_Panic(t *testing.T) {
-	handler := Recover(zap.NewNop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Recover(logger.NewNop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
 	}))
 
@@ -28,7 +28,7 @@ func TestRecover_Panic(t *testing.T) {
 }
 
 func TestRecover_NoPanic(t *testing.T) {
-	handler := Recover(zap.NewNop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Recover(logger.NewNop())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
