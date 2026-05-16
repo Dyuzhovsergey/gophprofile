@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	"github.com/google/uuid"
 )
 
@@ -41,6 +44,7 @@ type AvatarService struct {
 	repo               AvatarRepository
 	storage            AvatarStorage
 	maxUploadSizeBytes int64
+	log                *slog.Logger
 }
 
 // UploadAvatarInput содержит данные для загрузки аватарки.
@@ -60,19 +64,27 @@ type DownloadAvatarResult struct {
 }
 
 // NewAvatarService создаёт сервис управления аватарками.
+// NewAvatarService создаёт сервис управления аватарками.
 func NewAvatarService(
 	repo AvatarRepository,
 	storage AvatarStorage,
 	maxUploadSizeBytes int64,
+	loggers ...*slog.Logger,
 ) *AvatarService {
 	if maxUploadSizeBytes <= 0 {
 		maxUploadSizeBytes = DefaultMaxUploadSizeBytes
+	}
+
+	log := logger.NewNop()
+	if len(loggers) > 0 && loggers[0] != nil {
+		log = loggers[0]
 	}
 
 	return &AvatarService{
 		repo:               repo,
 		storage:            storage,
 		maxUploadSizeBytes: maxUploadSizeBytes,
+		log:                log,
 	}
 }
 
@@ -114,6 +126,20 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 	fileName := normalizeFileName(input.FileName)
 	s3Key := buildOriginalS3Key(avatarID, fileName)
 
+	s.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"uploading avatar",
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("user_id", userID),
+			slog.String("file_name", fileName),
+			slog.String("mime_type", mimeType),
+			slog.Int64("file_size", input.SizeBytes),
+			slog.String("s3_key", s3Key),
+		)...,
+	)
+
 	avatar := domain.Avatar{
 		ID:               avatarID,
 		UserID:           userID,
@@ -143,6 +169,18 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 		return domain.Avatar{}, fmt.Errorf("create avatar metadata: %w", err)
 	}
 
+	s.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"avatar uploaded",
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", createdAvatar.ID),
+			slog.String("user_id", createdAvatar.UserID),
+			slog.String("processing_status", string(createdAvatar.ProcessingStatus)),
+		)...,
+	)
+
 	return createdAvatar, nil
 }
 
@@ -161,6 +199,18 @@ func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (Dow
 	if avatar.IsDeleted() {
 		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
 	}
+
+	s.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"getting avatar by id",
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", avatar.ID),
+			slog.String("user_id", avatar.UserID),
+			slog.String("s3_key", avatar.S3Key),
+		)...,
+	)
 
 	data, contentType, err := s.storage.Download(ctx, avatar.S3Key)
 	if err != nil {
@@ -321,10 +371,32 @@ func (s *AvatarService) DeleteAvatarByID(
 		return domain.Avatar{}, domain.ErrForbidden
 	}
 
+	s.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"deleting avatar by id",
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", avatar.ID),
+			slog.String("user_id", userID),
+		)...,
+	)
+
 	deletedAvatar, err := s.repo.SoftDeleteWithDeleteEvent(ctx, avatarID)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	s.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"avatar deleted by id",
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", deletedAvatar.ID),
+			slog.String("user_id", deletedAvatar.UserID),
+		)...,
+	)
 
 	return deletedAvatar, nil
 }

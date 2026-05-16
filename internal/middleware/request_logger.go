@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 )
 
 // responseWriter хранит HTTP-статус ответа для логирования.
@@ -37,12 +38,17 @@ func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(wrappedWriter, r)
 
-			log.Info(
+			log.LogAttrs(
+				r.Context(),
+				slog.LevelInfo,
 				"HTTP request completed",
-				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
-				slog.Int("status", wrappedWriter.statusCode),
-				slog.Duration("duration", time.Since(startedAt)),
+				observabilitylogging.AppendTraceAttrs(
+					r.Context(),
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.Int("status", wrappedWriter.statusCode),
+					slog.Duration("duration", time.Since(startedAt)),
+				)...,
 			)
 		})
 	}

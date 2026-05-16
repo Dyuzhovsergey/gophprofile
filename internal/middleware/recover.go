@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 )
 
 // Recover перехватывает panic внутри HTTP handler-ов и возвращает 500.
@@ -17,11 +18,16 @@ func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					log.Error(
+					log.LogAttrs(
+						r.Context(),
+						slog.LevelError,
 						"panic recovered",
-						slog.Any("panic", recovered),
-						slog.String("method", r.Method),
-						slog.String("path", r.URL.Path),
+						observabilitylogging.AppendTraceAttrs(
+							r.Context(),
+							slog.Any("panic", recovered),
+							slog.String("method", r.Method),
+							slog.String("path", r.URL.Path),
+						)...,
 					)
 
 					http.Error(w, "internal server error", http.StatusInternalServerError)

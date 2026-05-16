@@ -85,6 +85,7 @@ func main() {
 		avatarRepository,
 		avatarStorage,
 		cfg.MaxUploadSizeBytes,
+		log,
 	)
 
 	avatarHandler := handlers.NewAvatarHandler(

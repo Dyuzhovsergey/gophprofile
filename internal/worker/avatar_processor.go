@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 )
 
@@ -69,40 +70,60 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return domain.ErrAvatarNotFound
 	}
 
-	p.log.Info(
+	p.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
 		"avatar uploaded event received",
-		slog.String("avatar_id", event.AvatarID),
-		slog.String("user_id", event.UserID),
-		slog.String("s3_key", event.S3Key),
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", event.AvatarID),
+			slog.String("user_id", event.UserID),
+			slog.String("s3_key", event.S3Key),
+		)...,
 	)
 
 	avatar, err := p.repo.GetByID(ctx, avatarID)
 	if err != nil {
-		p.log.Error(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"failed to get avatar metadata",
-			slog.String("avatar_id", avatarID),
-			logger.Err(err),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatarID),
+				logger.Err(err),
+			)...,
 		)
 
 		return fmt.Errorf("get avatar metadata: %w", err)
 	}
 
 	if avatar.IsDeleted() {
-		p.log.Info(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelInfo,
 			"avatar is deleted, skipping uploaded event",
-			slog.String("avatar_id", avatar.ID),
-			slog.String("user_id", avatar.UserID),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatar.ID),
+				slog.String("user_id", avatar.UserID),
+			)...,
 		)
 
 		return nil
 	}
 
 	if avatar.ProcessingStatus == domain.ProcessingStatusCompleted {
-		p.log.Info(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelInfo,
 			"avatar processing already completed, skipping event",
-			slog.String("avatar_id", avatar.ID),
-			slog.String("user_id", avatar.UserID),
-			slog.String("processing_status", string(avatar.ProcessingStatus)),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatar.ID),
+				slog.String("user_id", avatar.UserID),
+				slog.String("processing_status", string(avatar.ProcessingStatus)),
+			)...,
 		)
 
 		return nil
@@ -114,11 +135,16 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	originalData, _, err := p.storage.Download(ctx, avatar.S3Key)
 	if err != nil {
-		p.log.Error(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"failed to download original avatar",
-			slog.String("avatar_id", avatar.ID),
-			slog.String("s3_key", avatar.S3Key),
-			logger.Err(err),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatar.ID),
+				slog.String("s3_key", avatar.S3Key),
+				logger.Err(err),
+			)...,
 		)
 
 		p.markProcessingFailed(ctx, avatar.ID)
@@ -128,11 +154,16 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	result, err := p.imageProcessor.Process(originalData)
 	if err != nil {
-		p.log.Error(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"failed to process avatar image",
-			slog.String("avatar_id", avatar.ID),
-			slog.String("s3_key", avatar.S3Key),
-			logger.Err(err),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatar.ID),
+				slog.String("s3_key", avatar.S3Key),
+				logger.Err(err),
+			)...,
 		)
 
 		p.markProcessingFailed(ctx, avatar.ID)
@@ -172,12 +203,17 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return fmt.Errorf("update processing result: %w", err)
 	}
 
-	p.log.Info(
+	p.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
 		"avatar thumbnails generated",
-		slog.String("avatar_id", avatar.ID),
-		slog.Int("width", result.Width),
-		slog.Int("height", result.Height),
-		slog.Int("thumbnails_count", len(result.Thumbnails)),
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", avatar.ID),
+			slog.Int("width", result.Width),
+			slog.Int("height", result.Height),
+			slog.Int("thumbnails_count", len(result.Thumbnails)),
+		)...,
 	)
 
 	return nil
@@ -186,10 +222,15 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 // markProcessingFailed пытается сохранить статус failed при ошибке обработки.
 func (p *AvatarProcessor) markProcessingFailed(ctx context.Context, avatarID string) {
 	if _, err := p.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed); err != nil {
-		p.log.Error(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"failed to mark avatar processing as failed",
-			slog.String("avatar_id", avatarID),
-			logger.Err(err),
+			observabilitylogging.AppendTraceAttrs(
+				ctx,
+				slog.String("avatar_id", avatarID),
+				logger.Err(err),
+			)...,
 		)
 	}
 }
@@ -214,12 +255,17 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 		return domain.ErrAvatarNotFound
 	}
 
-	p.log.Info(
+	p.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
 		"avatar deleted event received",
-		slog.String("avatar_id", event.AvatarID),
-		slog.String("user_id", event.UserID),
-		slog.String("s3_key", event.S3Key),
-		slog.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", event.AvatarID),
+			slog.String("user_id", event.UserID),
+			slog.String("s3_key", event.S3Key),
+			slog.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+		)...,
 	)
 
 	if strings.TrimSpace(event.S3Key) != "" {
@@ -239,10 +285,15 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 		}
 	}
 
-	p.log.Info(
+	p.log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
 		"avatar files deleted from s3",
-		slog.String("avatar_id", event.AvatarID),
-		slog.String("user_id", event.UserID),
+		observabilitylogging.AppendTraceAttrs(
+			ctx,
+			slog.String("avatar_id", event.AvatarID),
+			slog.String("user_id", event.UserID),
+		)...,
 	)
 
 	return nil
