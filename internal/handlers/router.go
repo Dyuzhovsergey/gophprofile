@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -16,7 +17,7 @@ func NewRouter(
 	webHandler *WebHandler,
 ) http.Handler {
 	router := chi.NewRouter()
-
+	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
 	router.Use(middleware.CORS)
