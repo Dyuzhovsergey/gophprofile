@@ -8,6 +8,7 @@ type WorkerConfig struct {
 	DatabaseDSN string
 	S3          S3Config
 	RabbitMQ    RabbitMQConfig
+	Tracing     TracingConfig
 }
 
 // LoadWorker загружает конфигурацию worker-а из переменных окружения.
@@ -17,5 +18,6 @@ func LoadWorker() WorkerConfig {
 		DatabaseDSN: os.Getenv(envDatabaseDSN),
 		S3:          LoadS3(),
 		RabbitMQ:    LoadRabbitMQ(),
+		Tracing:     LoadTracing(defaultWorkerServiceName),
 	}
 }

@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/broker/rabbitmq"
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
@@ -32,6 +34,35 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	tracingShutdown, err := observabilitytracing.InitProvider(
+		ctx,
+		observabilitytracing.NewConfig(
+			cfg.Tracing.ServiceName,
+			cfg.Tracing.ExporterEndpoint,
+			cfg.Tracing.Enabled,
+		),
+	)
+	if err != nil {
+		log.Error("failed to initialize tracing", logger.Err(err))
+		os.Exit(1)
+	}
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := tracingShutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown tracing", logger.Err(err))
+		}
+	}()
+
+	log.Info(
+		"tracing initialized",
+		slog.Bool("enabled", cfg.Tracing.Enabled),
+		slog.String("service_name", cfg.Tracing.ServiceName),
+		slog.String("exporter_endpoint", cfg.Tracing.ExporterEndpoint),
+	)
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {

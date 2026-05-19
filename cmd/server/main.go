@@ -14,6 +14,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
@@ -46,6 +47,35 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	tracingShutdown, err := observabilitytracing.InitProvider(
+		ctx,
+		observabilitytracing.NewConfig(
+			cfg.Tracing.ServiceName,
+			cfg.Tracing.ExporterEndpoint,
+			cfg.Tracing.Enabled,
+		),
+	)
+	if err != nil {
+		log.Error("failed to initialize tracing", logger.Err(err))
+		os.Exit(1)
+	}
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GracefulShutdownTimeout)
+		defer cancel()
+
+		if err := tracingShutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown tracing", logger.Err(err))
+		}
+	}()
+
+	log.Info(
+		"tracing initialized",
+		slog.Bool("enabled", cfg.Tracing.Enabled),
+		slog.String("service_name", cfg.Tracing.ServiceName),
+		slog.String("exporter_endpoint", cfg.Tracing.ExporterEndpoint),
+	)
 
 	log.Info("connected to postgres")
 
