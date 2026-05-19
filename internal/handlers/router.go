@@ -17,6 +17,7 @@ func NewRouter(
 	webHandler *WebHandler,
 ) http.Handler {
 	router := chi.NewRouter()
+	
 	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
