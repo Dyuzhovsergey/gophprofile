@@ -14,7 +14,9 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // DefaultMaxUploadSizeBytes задаёт максимальный размер файла по умолчанию: 10 MB.
@@ -89,7 +91,20 @@ func NewAvatarService(
 }
 
 // UploadAvatar загружает файл аватарки в storage и сохраняет метаданные в repository.
-func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInput) (domain.Avatar, error) {
+func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInput) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.upload_avatar",
+		attribute.String("user_id", strings.TrimSpace(input.UserID)),
+		attribute.String("file_name", input.FileName),
+		attribute.String("mime_type", input.MIMEType),
+		attribute.Int64("file_size", input.SizeBytes),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	userID := strings.TrimSpace(input.UserID)
 	if userID == "" {
 		return domain.Avatar{}, domain.ErrMissingUserID
@@ -123,6 +138,8 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 
 	avatarID := uuid.NewString()
 
+	span.SetAttributes(attribute.String("avatar_id", avatarID))
+
 	fileName := normalizeFileName(input.FileName)
 	s3Key := buildOriginalS3Key(avatarID, fileName)
 
@@ -140,7 +157,7 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 		)...,
 	)
 
-	avatar := domain.Avatar{
+	avatar = domain.Avatar{
 		ID:               avatarID,
 		UserID:           userID,
 		FileName:         fileName,
@@ -185,7 +202,17 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 }
 
 // GetAvatarByID получает аватарку по id и скачивает файл из storage.
-func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (DownloadAvatarResult, error) {
+func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (result DownloadAvatarResult, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.get_avatar_by_id",
+		attribute.String("avatar_id", strings.TrimSpace(avatarID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
 		return DownloadAvatarResult{}, domain.ErrAvatarNotFound
@@ -195,6 +222,11 @@ func (s *AvatarService) GetAvatarByID(ctx context.Context, avatarID string) (Dow
 	if err != nil {
 		return DownloadAvatarResult{}, err
 	}
+
+	span.SetAttributes(
+		attribute.String("user_id", avatar.UserID),
+		attribute.String("s3_key", avatar.S3Key),
+	)
 
 	if avatar.IsDeleted() {
 		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
@@ -233,7 +265,18 @@ func (s *AvatarService) GetAvatarThumbnailByID(
 	ctx context.Context,
 	avatarID string,
 	size domain.ThumbnailSize,
-) (DownloadAvatarResult, error) {
+) (result DownloadAvatarResult, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.get_avatar_thumbnail_by_id",
+		attribute.String("avatar_id", strings.TrimSpace(avatarID)),
+		attribute.String("thumbnail_size", string(size)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
 		return DownloadAvatarResult{}, domain.ErrAvatarNotFound
@@ -248,6 +291,11 @@ func (s *AvatarService) GetAvatarThumbnailByID(
 		return DownloadAvatarResult{}, err
 	}
 
+	span.SetAttributes(
+		attribute.String("user_id", avatar.UserID),
+		attribute.String("s3_key", avatar.S3Key),
+	)
+
 	if avatar.IsDeleted() {
 		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
 	}
@@ -256,6 +304,8 @@ func (s *AvatarService) GetAvatarThumbnailByID(
 	if thumbnailKey == "" {
 		return DownloadAvatarResult{}, domain.ErrThumbnailNotFound
 	}
+
+	span.SetAttributes(attribute.String("thumbnail_s3_key", thumbnailKey))
 
 	data, contentType, err := s.storage.Download(ctx, thumbnailKey)
 	if err != nil {
@@ -274,16 +324,31 @@ func (s *AvatarService) GetAvatarThumbnailByID(
 }
 
 // GetAvatarMetadata получает метаданные аватарки по id без скачивания файла из storage.
-func (s *AvatarService) GetAvatarMetadata(ctx context.Context, avatarID string) (domain.Avatar, error) {
+func (s *AvatarService) GetAvatarMetadata(ctx context.Context, avatarID string) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.get_avatar_metadata",
+		attribute.String("avatar_id", strings.TrimSpace(avatarID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
 		return domain.Avatar{}, domain.ErrAvatarNotFound
 	}
 
-	avatar, err := s.repo.GetByID(ctx, avatarID)
+	avatar, err = s.repo.GetByID(ctx, avatarID)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(
+		attribute.String("user_id", avatar.UserID),
+		attribute.String("processing_status", string(avatar.ProcessingStatus)),
+	)
 
 	if avatar.IsDeleted() {
 		return domain.Avatar{}, domain.ErrAvatarDeleted
@@ -296,7 +361,17 @@ func (s *AvatarService) GetAvatarMetadata(ctx context.Context, avatarID string) 
 func (s *AvatarService) GetCurrentAvatarByUserID(
 	ctx context.Context,
 	userID string,
-) (DownloadAvatarResult, error) {
+) (result DownloadAvatarResult, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.get_current_avatar_by_user_id",
+		attribute.String("user_id", strings.TrimSpace(userID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return DownloadAvatarResult{}, domain.ErrMissingUserID
@@ -306,6 +381,11 @@ func (s *AvatarService) GetCurrentAvatarByUserID(
 	if err != nil {
 		return DownloadAvatarResult{}, err
 	}
+
+	span.SetAttributes(
+		attribute.String("avatar_id", avatar.ID),
+		attribute.String("s3_key", avatar.S3Key),
+	)
 
 	if avatar.IsDeleted() {
 		return DownloadAvatarResult{}, domain.ErrAvatarDeleted
@@ -328,16 +408,28 @@ func (s *AvatarService) GetCurrentAvatarByUserID(
 }
 
 // ListAvatarsByUserID возвращает список активных аватарок пользователя.
-func (s *AvatarService) ListAvatarsByUserID(ctx context.Context, userID string) ([]domain.Avatar, error) {
+func (s *AvatarService) ListAvatarsByUserID(ctx context.Context, userID string) (avatars []domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.list_avatars_by_user_id",
+		attribute.String("user_id", strings.TrimSpace(userID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return nil, domain.ErrMissingUserID
 	}
 
-	avatars, err := s.repo.ListByUserID(ctx, userID)
+	avatars, err = s.repo.ListByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
+
+	span.SetAttributes(attribute.Int("avatars_count", len(avatars)))
 
 	return avatars, nil
 }
@@ -347,7 +439,18 @@ func (s *AvatarService) DeleteAvatarByID(
 	ctx context.Context,
 	avatarID string,
 	userID string,
-) (domain.Avatar, error) {
+) (deletedAvatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.delete_avatar_by_id",
+		attribute.String("avatar_id", strings.TrimSpace(avatarID)),
+		attribute.String("user_id", strings.TrimSpace(userID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
 		return domain.Avatar{}, domain.ErrAvatarNotFound
@@ -362,6 +465,11 @@ func (s *AvatarService) DeleteAvatarByID(
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(
+		attribute.String("avatar_owner_id", avatar.UserID),
+		attribute.String("s3_key", avatar.S3Key),
+	)
 
 	if avatar.IsDeleted() {
 		return domain.Avatar{}, domain.ErrAvatarDeleted
@@ -382,10 +490,12 @@ func (s *AvatarService) DeleteAvatarByID(
 		)...,
 	)
 
-	deletedAvatar, err := s.repo.SoftDeleteWithDeleteEvent(ctx, avatarID)
+	deletedAvatar, err = s.repo.SoftDeleteWithDeleteEvent(ctx, avatarID)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(attribute.Bool("deleted", true))
 
 	s.log.LogAttrs(
 		ctx,
@@ -406,7 +516,18 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 	ctx context.Context,
 	userID string,
 	actorUserID string,
-) (domain.Avatar, error) {
+) (deletedAvatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"avatar_service.delete_current_avatar_by_user_id",
+		attribute.String("user_id", strings.TrimSpace(userID)),
+		attribute.String("actor_user_id", strings.TrimSpace(actorUserID)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return domain.Avatar{}, domain.ErrMissingUserID
@@ -426,6 +547,11 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 		return domain.Avatar{}, err
 	}
 
+	span.SetAttributes(
+		attribute.String("avatar_id", avatar.ID),
+		attribute.String("s3_key", avatar.S3Key),
+	)
+
 	if avatar.IsDeleted() {
 		return domain.Avatar{}, domain.ErrAvatarDeleted
 	}
@@ -434,10 +560,12 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 		return domain.Avatar{}, domain.ErrForbidden
 	}
 
-	deletedAvatar, err := s.repo.SoftDeleteWithDeleteEvent(ctx, avatar.ID)
+	deletedAvatar, err = s.repo.SoftDeleteWithDeleteEvent(ctx, avatar.ID)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(attribute.Bool("deleted", true))
 
 	return deletedAvatar, nil
 }
