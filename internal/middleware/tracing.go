@@ -8,9 +8,6 @@ import (
 )
 
 // Tracing создаёт middleware для трассировки входящих HTTP-запросов.
-//
-// routes нужен otelchi, чтобы называть spans по шаблону маршрута,
-// например GET /api/v1/avatars/{avatar_id}, а не по конкретному URL.
 func Tracing(serviceName string, routes chi.Routes) func(http.Handler) http.Handler {
 	return otelchi.Middleware(
 		serviceName,
