@@ -11,7 +11,9 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AvatarRepository описывает методы repository, которые нужны worker-у.
@@ -64,7 +66,19 @@ func NewAvatarProcessor(
 }
 
 // HandleAvatarUploaded обрабатывает событие загрузки аватарки.
-func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) error {
+func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain.AvatarUploadEvent) (err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"worker.process_avatar_uploaded",
+		attribute.String("avatar_id", strings.TrimSpace(event.AvatarID)),
+		attribute.String("user_id", strings.TrimSpace(event.UserID)),
+		attribute.String("s3_key", strings.TrimSpace(event.S3Key)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID := strings.TrimSpace(event.AvatarID)
 	if avatarID == "" {
 		return domain.ErrAvatarNotFound
@@ -129,7 +143,7 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return nil
 	}
 
-	if _, err := p.repo.UpdateProcessingStatus(ctx, avatar.ID, domain.ProcessingStatusProcessing); err != nil {
+	if _, err = p.repo.UpdateProcessingStatus(ctx, avatar.ID, domain.ProcessingStatusProcessing); err != nil {
 		return fmt.Errorf("set processing status: %w", err)
 	}
 
@@ -152,8 +166,19 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return fmt.Errorf("download original avatar: %w", err)
 	}
 
+	_, generateSpan := observabilitytracing.StartSpan(
+		ctx,
+		"worker.generate_thumbnails",
+		attribute.String("avatar_id", avatar.ID),
+		attribute.String("user_id", avatar.UserID),
+		attribute.Int64("original_file_size", int64(len(originalData))),
+	)
+
 	result, err := p.imageProcessor.Process(originalData)
 	if err != nil {
+		observabilitytracing.RecordError(generateSpan, err)
+		generateSpan.End()
+
 		p.log.LogAttrs(
 			ctx,
 			slog.LevelError,
@@ -171,12 +196,19 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		return fmt.Errorf("process avatar image: %w", err)
 	}
 
+	generateSpan.SetAttributes(
+		attribute.Int("width", result.Width),
+		attribute.Int("height", result.Height),
+		attribute.Int("thumbnails_count", len(result.Thumbnails)),
+	)
+	generateSpan.End()
+
 	thumbnailKeys := make(map[domain.ThumbnailSize]string, len(result.Thumbnails))
 
 	for _, thumbnail := range result.Thumbnails {
 		key := buildThumbnailS3Key(avatar.ID, thumbnail.Size, thumbnail.Extension)
 
-		if err := p.storage.Upload(
+		if err = p.storage.Upload(
 			ctx,
 			key,
 			bytes.NewReader(thumbnail.Data),
@@ -190,7 +222,7 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		thumbnailKeys[thumbnail.Size] = key
 	}
 
-	if _, err := p.repo.UpdateProcessingResult(
+	if _, err = p.repo.UpdateProcessingResult(
 		ctx,
 		avatar.ID,
 		result.Width,
@@ -214,6 +246,13 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			slog.Int("height", result.Height),
 			slog.Int("thumbnails_count", len(result.Thumbnails)),
 		)...,
+	)
+
+	span.SetAttributes(
+		attribute.String("processing_status", string(domain.ProcessingStatusCompleted)),
+		attribute.Int("width", result.Width),
+		attribute.Int("height", result.Height),
+		attribute.Int("thumbnails_count", len(result.Thumbnails)),
 	)
 
 	return nil
@@ -249,7 +288,20 @@ func buildThumbnailS3Key(
 }
 
 // HandleAvatarDeleted обрабатывает событие удаления аватарки.
-func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) error {
+func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.AvatarDeletedEvent) (err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"worker.process_avatar_deleted",
+		attribute.String("avatar_id", strings.TrimSpace(event.AvatarID)),
+		attribute.String("user_id", strings.TrimSpace(event.UserID)),
+		attribute.String("s3_key", strings.TrimSpace(event.S3Key)),
+		attribute.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	avatarID := strings.TrimSpace(event.AvatarID)
 	if avatarID == "" {
 		return domain.ErrAvatarNotFound
@@ -269,7 +321,7 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 	)
 
 	if strings.TrimSpace(event.S3Key) != "" {
-		if err := p.storage.Delete(ctx, event.S3Key); err != nil {
+		if err = p.storage.Delete(ctx, event.S3Key); err != nil {
 			return fmt.Errorf("delete original avatar from s3: %w", err)
 		}
 	}
@@ -280,7 +332,7 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 			continue
 		}
 
-		if err := p.storage.Delete(ctx, key); err != nil {
+		if err = p.storage.Delete(ctx, key); err != nil {
 			return fmt.Errorf("delete avatar thumbnail %s from s3: %w", size, err)
 		}
 	}
@@ -295,6 +347,8 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 			slog.String("user_id", event.UserID),
 		)...,
 	)
+
+	span.SetAttributes(attribute.Bool("deleted_from_s3", true))
 
 	return nil
 }

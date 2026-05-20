@@ -9,7 +9,9 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AvatarUploadHandler обрабатывает событие загрузки аватарки.
@@ -24,6 +26,20 @@ type Consumer struct {
 	channel     *amqp.Channel
 	uploadQueue string
 	deleteQueue string
+}
+
+// rabbitMQConsumeAttrs возвращает общие атрибуты для RabbitMQ consume span.
+func rabbitMQConsumeAttrs(delivery amqp.Delivery, queue string, eventType string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.operation", "consume"),
+		attribute.String("messaging.destination.name", strings.TrimSpace(queue)),
+		attribute.String("messaging.rabbitmq.exchange", strings.TrimSpace(delivery.Exchange)),
+		attribute.String("messaging.rabbitmq.routing_key", strings.TrimSpace(delivery.RoutingKey)),
+		attribute.String("messaging.message.id", strings.TrimSpace(delivery.MessageId)),
+		attribute.String("messaging.message.type", strings.TrimSpace(eventType)),
+		attribute.Int("messaging.message.body.size", len(delivery.Body)),
+	}
 }
 
 // NewConsumer создаёт RabbitMQ consumer и объявляет exchange, queue и binding.
@@ -197,7 +213,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarUploadedDelivery(ctx, delivery, uploadHandler); err != nil {
+			if err := handleAvatarUploadedDelivery(ctx, c.uploadQueue, delivery, uploadHandler); err != nil {
 				return err
 			}
 
@@ -207,7 +223,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarDeletedDelivery(ctx, delivery, deleteHandler); err != nil {
+			if err := handleAvatarDeletedDelivery(ctx, c.deleteQueue, delivery, deleteHandler); err != nil {
 				return err
 			}
 		}
@@ -219,23 +235,50 @@ func (c *Consumer) ConsumeAvatarEvents(
 // handleAvatarUploadedDelivery обрабатывает одно сообщение avatar.uploaded.
 func handleAvatarUploadedDelivery(
 	ctx context.Context,
+	queue string,
 	delivery amqp.Delivery,
 	handler AvatarUploadHandler,
 ) error {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	deliveryCtx, span := observabilitytracing.StartSpan(
+		deliveryCtx,
+		"rabbitmq.consume",
+		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarUploaded)...,
+	)
+
+	var spanErr error
+	defer func() {
+		observabilitytracing.RecordError(span, spanErr)
+		span.End()
+	}()
+
 	var event domain.AvatarUploadEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
+		spanErr = err
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	span.SetAttributes(
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+	)
 
 	if err := handler(deliveryCtx, event); err != nil {
+		spanErr = err
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
 	if err := delivery.Ack(false); err != nil {
+		spanErr = err
+
 		return fmt.Errorf("ack avatar uploaded event: %w", err)
 	}
 
@@ -245,23 +288,51 @@ func handleAvatarUploadedDelivery(
 // handleAvatarDeletedDelivery обрабатывает одно сообщение avatar.deleted.
 func handleAvatarDeletedDelivery(
 	ctx context.Context,
+	queue string,
 	delivery amqp.Delivery,
 	handler AvatarDeletedHandler,
 ) error {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	deliveryCtx, span := observabilitytracing.StartSpan(
+		deliveryCtx,
+		"rabbitmq.consume",
+		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarDeleted)...,
+	)
+
+	var spanErr error
+	defer func() {
+		observabilitytracing.RecordError(span, spanErr)
+		span.End()
+	}()
+
 	var event domain.AvatarDeletedEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
+		spanErr = err
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	span.SetAttributes(
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+		attribute.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+	)
 
 	if err := handler(deliveryCtx, event); err != nil {
+		spanErr = err
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
 	if err := delivery.Ack(false); err != nil {
+		spanErr = err
+
 		return fmt.Errorf("ack avatar deleted event: %w", err)
 	}
 
