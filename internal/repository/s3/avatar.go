@@ -8,14 +8,48 @@ import (
 	"io"
 	"strings"
 
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	"go.opentelemetry.io/otel/attribute"
 )
 
+// s3Attrs возвращает общие атрибуты для S3/MinIO spans.
+func s3Attrs(bucket string, operation string, key string, attrs ...attribute.KeyValue) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attrs)+3)
+
+	result = append(result,
+		attribute.String("s3.bucket", bucket),
+		attribute.String("s3.operation", operation),
+		attribute.String("s3.key", strings.TrimSpace(key)),
+	)
+
+	result = append(result, attrs...)
+
+	return result
+}
+
 // Upload сохраняет объект в S3/MinIO.
-func (c *Client) Upload(ctx context.Context, key string, body io.Reader, contentType string) error {
-	if strings.TrimSpace(key) == "" {
+func (c *Client) Upload(ctx context.Context, key string, body io.Reader, contentType string) (err error) {
+	key = strings.TrimSpace(key)
+
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"s3.upload",
+		s3Attrs(
+			c.bucket,
+			"upload",
+			key,
+			attribute.String("content_type", strings.TrimSpace(contentType)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	if key == "" {
 		return ErrEmptyObjectKey
 	}
 
@@ -23,6 +57,8 @@ func (c *Client) Upload(ctx context.Context, key string, body io.Reader, content
 	if err != nil {
 		return fmt.Errorf("read s3 object body: %w", err)
 	}
+
+	span.SetAttributes(attribute.Int64("file.size", int64(len(data))))
 
 	input := &awss3.PutObjectInput{
 		Bucket:        aws.String(c.bucket),
@@ -43,8 +79,20 @@ func (c *Client) Upload(ctx context.Context, key string, body io.Reader, content
 }
 
 // Download скачивает объект из S3/MinIO и возвращает его содержимое и Content-Type.
-func (c *Client) Download(ctx context.Context, key string) ([]byte, string, error) {
-	if strings.TrimSpace(key) == "" {
+func (c *Client) Download(ctx context.Context, key string) (data []byte, contentType string, err error) {
+	key = strings.TrimSpace(key)
+
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"s3.download",
+		s3Attrs(c.bucket, "download", key)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	if key == "" {
 		return nil, "", ErrEmptyObjectKey
 	}
 
@@ -57,17 +105,36 @@ func (c *Client) Download(ctx context.Context, key string) ([]byte, string, erro
 	}
 	defer output.Body.Close()
 
-	data, err := io.ReadAll(output.Body)
+	data, err = io.ReadAll(output.Body)
 	if err != nil {
 		return nil, "", fmt.Errorf("read s3 object body: %w", err)
 	}
 
-	return data, aws.ToString(output.ContentType), nil
+	contentType = aws.ToString(output.ContentType)
+
+	span.SetAttributes(
+		attribute.String("content_type", contentType),
+		attribute.Int64("file.size", int64(len(data))),
+	)
+
+	return data, contentType, nil
 }
 
 // Delete удаляет объект из S3/MinIO.
-func (c *Client) Delete(ctx context.Context, key string) error {
-	if strings.TrimSpace(key) == "" {
+func (c *Client) Delete(ctx context.Context, key string) (err error) {
+	key = strings.TrimSpace(key)
+
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"s3.delete",
+		s3Attrs(c.bucket, "delete", key)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	if key == "" {
 		return ErrEmptyObjectKey
 	}
 
@@ -82,8 +149,20 @@ func (c *Client) Delete(ctx context.Context, key string) error {
 }
 
 // Exists проверяет существование объекта в S3/MinIO.
-func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
-	if strings.TrimSpace(key) == "" {
+func (c *Client) Exists(ctx context.Context, key string) (exists bool, err error) {
+	key = strings.TrimSpace(key)
+
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"s3.exists",
+		s3Attrs(c.bucket, "exists", key)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	if key == "" {
 		return false, ErrEmptyObjectKey
 	}
 
@@ -92,11 +171,14 @@ func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
 		Key:    aws.String(key),
 	}); err != nil {
 		if isNotFoundError(err) {
+			span.SetAttributes(attribute.Bool("s3.exists", false))
 			return false, nil
 		}
 
 		return false, fmt.Errorf("head s3 object: %w", err)
 	}
+
+	span.SetAttributes(attribute.Bool("s3.exists", true))
 
 	return true, nil
 }
