@@ -251,6 +251,14 @@ curl -i -X DELETE http://localhost:9090/api/v1/users/user/avatar \
 HTTP/1.1 204 No Content
 ```
 
+## Prometheus metrics
+
+Приложение отдаёт базовые Prometheus metrics на endpoint:
+
+```bash
+curl http://localhost:9090/metrics
+```
+
 ### Проверка через браузер
 
 #### Откройте:

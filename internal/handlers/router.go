@@ -6,6 +6,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -17,13 +18,14 @@ func NewRouter(
 	webHandler *WebHandler,
 ) http.Handler {
 	router := chi.NewRouter()
-	
+
 	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
 	router.Use(middleware.CORS)
 
 	router.Get("/health", healthHandler.Handle)
+	router.Handle("/metrics", observabilitymetrics.Handler())
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/web/upload", http.StatusSeeOther)
 	})

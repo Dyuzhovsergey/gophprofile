@@ -1,7 +1,12 @@
-// Package metrics содержит общую заготовку для Prometheus-метрик GophProfile.
+// Package metrics содержит HTTP endpoint и будущие метрики Prometheus для GophProfile.
 package metrics
 
-import "strings"
+import (
+	"net/http"
+	"strings"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
 
 const (
 	// Namespace используется как общий префикс Prometheus-метрик проекта.
@@ -18,4 +23,9 @@ func NewConfig(serviceName string) Config {
 	return Config{
 		ServiceName: strings.TrimSpace(serviceName),
 	}
+}
+
+// Handler возвращает HTTP handler для Prometheus metrics.
+func Handler() http.Handler {
+	return promhttp.Handler()
 }
