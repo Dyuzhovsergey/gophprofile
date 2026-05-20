@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 )
 
 const (
@@ -164,6 +165,8 @@ func (d *Dispatcher) dispatchAndLog(ctx context.Context) {
 func (d *Dispatcher) publishEvent(ctx context.Context, event domain.OutboxEvent) error {
 	publishCtx, cancel := context.WithTimeout(ctx, d.cfg.PublishTimeout)
 	defer cancel()
+
+	publishCtx = observabilitytracing.ExtractTextMap(publishCtx, event.Headers)
 
 	switch event.EventType {
 	case domain.OutboxEventTypeAvatarUploaded:

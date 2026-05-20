@@ -140,6 +140,7 @@ func (r *AvatarRepository) CreateWithUploadEvent(
 	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
 		EventType: domain.OutboxEventTypeAvatarUploaded,
 		Payload:   payload,
+		Headers:   observabilitytracing.InjectTextMap(ctx),
 	}); err != nil {
 		return domain.Avatar{}, fmt.Errorf("create avatar uploaded outbox event: %w", err)
 	}
@@ -419,6 +420,7 @@ func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id str
 	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
 		EventType: domain.OutboxEventTypeAvatarDeleted,
 		Payload:   payload,
+		Headers:   observabilitytracing.InjectTextMap(ctx),
 	}); err != nil {
 		return domain.Avatar{}, fmt.Errorf("create avatar deleted outbox event: %w", err)
 	}

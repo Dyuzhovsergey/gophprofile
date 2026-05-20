@@ -228,7 +228,9 @@ func handleAvatarUploadedDelivery(
 		return nil
 	}
 
-	if err := handler(ctx, event); err != nil {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	if err := handler(deliveryCtx, event); err != nil {
 		_ = delivery.Nack(false, false)
 		return nil
 	}
@@ -252,7 +254,9 @@ func handleAvatarDeletedDelivery(
 		return nil
 	}
 
-	if err := handler(ctx, event); err != nil {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	if err := handler(deliveryCtx, event); err != nil {
 		_ = delivery.Nack(false, false)
 		return nil
 	}

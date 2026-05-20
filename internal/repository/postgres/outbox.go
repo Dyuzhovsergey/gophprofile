@@ -16,6 +16,7 @@ const outboxEventColumns = `
 	id::text,
 	event_type,
 	payload,
+	headers,
 	status,
 	attempts,
 	COALESCE(last_error, ''),
@@ -54,7 +55,6 @@ func (r *OutboxRepository) Create(ctx context.Context, event domain.OutboxEvent)
 }
 
 // createOutboxEvent создаёт outbox-событие через переданный executor.
-// Executor может быть обычным pool или транзакцией.
 func createOutboxEvent(
 	ctx context.Context,
 	db queryRower,
@@ -74,21 +74,28 @@ func createOutboxEvent(
 		return domain.OutboxEvent{}, domain.ErrInvalidOutboxPayload
 	}
 
+	headers, err := encodeOutboxHeaders(event.Headers)
+	if err != nil {
+		return domain.OutboxEvent{}, fmt.Errorf("encode outbox headers: %w", err)
+	}
+
 	query := `
-		INSERT INTO outbox_events (
-			event_type,
-			payload,
-			status,
-			available_at
-		)
-		VALUES ($1, $2, $3, $4)
-		RETURNING ` + outboxEventColumns
+	INSERT INTO outbox_events (
+		event_type,
+		payload,
+		headers,
+		status,
+		available_at
+	)
+	VALUES ($1, $2, $3, $4, $5)
+	RETURNING ` + outboxEventColumns
 
 	createdEvent, err := scanOutboxEvent(db.QueryRow(
 		ctx,
 		query,
 		string(event.EventType),
 		event.Payload,
+		headers,
 		string(event.Status),
 		event.AvailableAt,
 	))
@@ -215,17 +222,33 @@ func prepareOutboxEventForCreate(event domain.OutboxEvent) domain.OutboxEvent {
 	return event
 }
 
+// encodeOutboxHeaders кодирует headers outbox-события в JSONB.
+func encodeOutboxHeaders(headers map[string]string) ([]byte, error) {
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+
+	data, err := json.Marshal(headers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal outbox headers: %w", err)
+	}
+
+	return data, nil
+}
+
 // scanOutboxEvent сканирует outbox-событие из строки PostgreSQL.
 func scanOutboxEvent(row pgxRow) (domain.OutboxEvent, error) {
 	var event domain.OutboxEvent
 	var eventType string
 	var status string
 	var payload []byte
+	var headers []byte
 
 	if err := row.Scan(
 		&event.ID,
 		&eventType,
 		&payload,
+		&headers,
 		&status,
 		&event.Attempts,
 		&event.LastError,
@@ -240,6 +263,16 @@ func scanOutboxEvent(row pgxRow) (domain.OutboxEvent, error) {
 	event.EventType = domain.OutboxEventType(eventType)
 	event.Payload = json.RawMessage(payload)
 	event.Status = domain.OutboxEventStatus(status)
+
+	if len(headers) > 0 {
+		if err := json.Unmarshal(headers, &event.Headers); err != nil {
+			return domain.OutboxEvent{}, fmt.Errorf("unmarshal outbox headers: %w", err)
+		}
+	}
+
+	if event.Headers == nil {
+		event.Headers = make(map[string]string)
+	}
 
 	return event, nil
 }
