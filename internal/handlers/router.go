@@ -20,8 +20,9 @@ func NewRouter(
 	router := chi.NewRouter()
 
 	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
-	router.Use(middleware.Recover(log))
 	router.Use(middleware.RequestLogger(log))
+	router.Use(middleware.HTTPMetrics())
+	router.Use(middleware.Recover(log))
 	router.Use(middleware.CORS)
 
 	router.Get("/health", healthHandler.Handle)
