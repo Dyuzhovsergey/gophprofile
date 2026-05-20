@@ -11,9 +11,35 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+// rabbitMQPublishAttrs возвращает общие атрибуты для RabbitMQ publish span.
+func rabbitMQPublishAttrs(
+	exchange string,
+	routingKey string,
+	eventType string,
+	bodySize int,
+	attrs ...attribute.KeyValue,
+) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attrs)+6)
+
+	result = append(result,
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", strings.TrimSpace(exchange)),
+		attribute.String("messaging.rabbitmq.routing_key", strings.TrimSpace(routingKey)),
+		attribute.String("messaging.message.type", strings.TrimSpace(eventType)),
+		attribute.Int("messaging.message.body.size", bodySize),
+	)
+
+	result = append(result, attrs...)
+
+	return result
+}
 
 const (
 	exchangeTypeTopic = "topic"
@@ -89,7 +115,15 @@ func (p *Publisher) PublishAvatarUploaded(ctx context.Context, event domain.Avat
 		return fmt.Errorf("marshal avatar upload event: %w", err)
 	}
 
-	return p.publish(ctx, p.uploadRoutingKey, eventTypeAvatarUploaded, body)
+	return p.publish(
+		ctx,
+		p.uploadRoutingKey,
+		eventTypeAvatarUploaded,
+		body,
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+	)
 }
 
 // PublishAvatarDeleted публикует событие удаления аватарки.
@@ -99,7 +133,16 @@ func (p *Publisher) PublishAvatarDeleted(ctx context.Context, event domain.Avata
 		return fmt.Errorf("marshal avatar deleted event: %w", err)
 	}
 
-	return p.publish(ctx, p.deleteRoutingKey, eventTypeAvatarDeleted, body)
+	return p.publish(
+		ctx,
+		p.deleteRoutingKey,
+		eventTypeAvatarDeleted,
+		body,
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+		attribute.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+	)
 }
 
 // Ping проверяет, что соединение и канал RabbitMQ открыты.
@@ -151,7 +194,29 @@ func (p *Publisher) Close() error {
 }
 
 // publish публикует сообщение в RabbitMQ.
-func (p *Publisher) publish(ctx context.Context, routingKey string, eventType string, body []byte) error {
+func (p *Publisher) publish(
+	ctx context.Context,
+	routingKey string,
+	eventType string,
+	body []byte,
+	attrs ...attribute.KeyValue,
+) (err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"rabbitmq.publish",
+		rabbitMQPublishAttrs(
+			p.exchange,
+			routingKey,
+			eventType,
+			len(body),
+			attrs...,
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	if !p.isConnectionReady() {
 		if err := p.reconnect(ctx); err != nil {
 			return fmt.Errorf("reconnect rabbitmq before publish: %w", err)
@@ -168,7 +233,14 @@ func (p *Publisher) publish(ctx context.Context, routingKey string, eventType st
 		return ErrRabbitMQClosed
 	}
 
-	err := channel.PublishWithContext(
+	messageID := uuid.NewString()
+
+	span.SetAttributes(
+		attribute.String("messaging.message.id", messageID),
+		attribute.String("messaging.destination.name", exchange),
+	)
+
+	err = channel.PublishWithContext(
 		ctx,
 		exchange,
 		routingKey,
@@ -178,7 +250,7 @@ func (p *Publisher) publish(ctx context.Context, routingKey string, eventType st
 			ContentType:  contentTypeJSON,
 			DeliveryMode: amqp.Persistent,
 			Timestamp:    time.Now(),
-			MessageId:    uuid.NewString(),
+			MessageId:    messageID,
 			Type:         eventType,
 			Body:         body,
 		},
