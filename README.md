@@ -259,6 +259,14 @@ HTTP/1.1 204 No Content
 curl http://localhost:9090/metrics
 ```
 
+## Prometheus
+
+Prometheus доступен по адресу:
+
+```bash
+http://localhost:9092
+```
+
 ### Проверка через браузер
 
 #### Откройте:

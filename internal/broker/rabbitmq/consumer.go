@@ -9,6 +9,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel/attribute"
@@ -247,15 +248,21 @@ func handleAvatarUploadedDelivery(
 		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarUploaded)...,
 	)
 
+	workerStatus := observabilitymetrics.StatusSuccess
+	startedAt := observabilitymetrics.StartWorkerJob(eventTypeAvatarUploaded)
+
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
+
+		observabilitymetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarUploadEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		_ = delivery.Nack(false, false)
 
@@ -270,6 +277,7 @@ func handleAvatarUploadedDelivery(
 
 	if err := handler(deliveryCtx, event); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		_ = delivery.Nack(false, false)
 
@@ -278,6 +286,7 @@ func handleAvatarUploadedDelivery(
 
 	if err := delivery.Ack(false); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		return fmt.Errorf("ack avatar uploaded event: %w", err)
 	}
@@ -300,15 +309,21 @@ func handleAvatarDeletedDelivery(
 		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarDeleted)...,
 	)
 
+	workerStatus := observabilitymetrics.StatusSuccess
+	startedAt := observabilitymetrics.StartWorkerJob(eventTypeAvatarDeleted)
+
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
+
+		observabilitymetrics.FinishWorkerJob(eventTypeAvatarDeleted, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarDeletedEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		_ = delivery.Nack(false, false)
 
@@ -324,6 +339,7 @@ func handleAvatarDeletedDelivery(
 
 	if err := handler(deliveryCtx, event); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		_ = delivery.Nack(false, false)
 
@@ -332,6 +348,7 @@ func handleAvatarDeletedDelivery(
 
 	if err := delivery.Ack(false); err != nil {
 		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
 
 		return fmt.Errorf("ack avatar deleted event: %w", err)
 	}

@@ -244,6 +244,7 @@ func TestLoadWorker_FromEnv(t *testing.T) {
 	t.Setenv(envOTelEnabled, "true")
 	t.Setenv(envOTelExporterEndpoint, "localhost:24318")
 	t.Setenv(envServiceName, "custom-gophprofile-worker")
+	t.Setenv(envWorkerMetricsAddress, ":19091")
 
 	cfg := LoadWorker()
 
@@ -265,5 +266,9 @@ func TestLoadWorker_FromEnv(t *testing.T) {
 
 	if cfg.Tracing.ServiceName != "custom-gophprofile-worker" {
 		t.Fatalf("unexpected tracing service name: got %q", cfg.Tracing.ServiceName)
+	}
+
+	if cfg.MetricsAddress != ":19091" {
+		t.Fatalf("unexpected worker metrics address: got %q", cfg.MetricsAddress)
 	}
 }

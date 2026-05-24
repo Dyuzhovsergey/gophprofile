@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
@@ -63,6 +65,35 @@ func main() {
 		slog.String("service_name", cfg.Tracing.ServiceName),
 		slog.String("exporter_endpoint", cfg.Tracing.ExporterEndpoint),
 	)
+
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", observabilitymetrics.Handler())
+
+	metricsServer := &http.Server{
+		Addr:              cfg.MetricsAddress,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		log.Info(
+			"worker metrics server starting",
+			slog.String("address", cfg.MetricsAddress),
+		)
+
+		if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("worker metrics server stopped with error", logger.Err(err))
+		}
+	}()
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown worker metrics server", logger.Err(err))
+		}
+	}()
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
