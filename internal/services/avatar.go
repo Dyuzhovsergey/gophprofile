@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -103,6 +105,21 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 	defer func() {
 		observabilitytracing.RecordError(span, err)
 		span.End()
+	}()
+
+	startedAt := time.Now()
+
+	defer func() {
+		status := observabilitymetrics.StatusSuccess
+		if err != nil {
+			status = observabilitymetrics.StatusError
+		}
+
+		observabilitymetrics.RecordAvatarUpload(status, time.Since(startedAt))
+
+		if err == nil {
+			observabilitymetrics.AddAvatarStorageBytes(input.SizeBytes)
+		}
 	}()
 
 	userID := strings.TrimSpace(input.UserID)
@@ -451,6 +468,19 @@ func (s *AvatarService) DeleteAvatarByID(
 		span.End()
 	}()
 
+	defer func() {
+		status := observabilitymetrics.StatusSuccess
+		if err != nil {
+			status = observabilitymetrics.StatusError
+		}
+
+		observabilitymetrics.RecordAvatarDelete(status)
+
+		if err == nil {
+			observabilitymetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
+		}
+	}()
+
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
 		return domain.Avatar{}, domain.ErrAvatarNotFound
@@ -526,6 +556,19 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 	defer func() {
 		observabilitytracing.RecordError(span, err)
 		span.End()
+	}()
+
+	defer func() {
+		status := observabilitymetrics.StatusSuccess
+		if err != nil {
+			status = observabilitymetrics.StatusError
+		}
+
+		observabilitymetrics.RecordAvatarDelete(status)
+
+		if err == nil {
+			observabilitymetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
+		}
 	}()
 
 	userID = strings.TrimSpace(userID)

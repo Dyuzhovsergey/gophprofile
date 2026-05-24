@@ -7,10 +7,12 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"go.opentelemetry.io/otel/attribute"
@@ -79,6 +81,17 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		span.End()
 	}()
 
+	startedAt := time.Now()
+	processingStatus := observabilitymetrics.StatusSuccess
+
+	defer func() {
+		if err != nil {
+			processingStatus = observabilitymetrics.StatusError
+		}
+
+		observabilitymetrics.RecordAvatarProcessing(processingStatus, time.Since(startedAt))
+	}()
+
 	avatarID := strings.TrimSpace(event.AvatarID)
 	if avatarID == "" {
 		return domain.ErrAvatarNotFound
@@ -124,6 +137,8 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			)...,
 		)
 
+		processingStatus = observabilitymetrics.StatusSkipped
+
 		return nil
 	}
 
@@ -139,6 +154,8 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 				slog.String("processing_status", string(avatar.ProcessingStatus)),
 			)...,
 		)
+
+		processingStatus = observabilitymetrics.StatusSkipped
 
 		return nil
 	}
@@ -203,6 +220,13 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	)
 	generateSpan.End()
 
+	var thumbnailsSizeBytes int64
+	for _, thumbnail := range result.Thumbnails {
+		thumbnailsSizeBytes += int64(len(thumbnail.Data))
+	}
+
+	span.SetAttributes(attribute.Int64("thumbnails_size_bytes", thumbnailsSizeBytes))
+
 	thumbnailKeys := make(map[domain.ThumbnailSize]string, len(result.Thumbnails))
 
 	for _, thumbnail := range result.Thumbnails {
@@ -254,6 +278,8 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		attribute.Int("height", result.Height),
 		attribute.Int("thumbnails_count", len(result.Thumbnails)),
 	)
+
+	observabilitymetrics.AddAvatarStorageBytes(thumbnailsSizeBytes)
 
 	return nil
 }
@@ -347,6 +373,8 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 			slog.String("user_id", event.UserID),
 		)...,
 	)
+
+	observabilitymetrics.RecordAvatarDelete(observabilitymetrics.StatusSuccess)
 
 	span.SetAttributes(attribute.Bool("deleted_from_s3", true))
 
