@@ -192,6 +192,31 @@ services:
     ports:
       - "9092:9090" 
 
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: gophprofile-loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - gophprofile_loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: gophprofile-promtail
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_started
+    command:
+      - "-config.file=/etc/promtail/promtail-config.yml"
+    volumes:
+      - ./deploy/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   grafana:
     image: grafana/grafana:latest
     container_name: gophprofile-grafana
@@ -199,6 +224,8 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      loki:
+        condition: service_started  
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -217,3 +244,4 @@ volumes:
   gophprofile_rabbitmq_data:
   gophprofile_prometheus_data:
   gophprofile_grafana_data:
+  gophprofile_loki_data:

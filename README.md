@@ -268,9 +268,13 @@ http://localhost:9092
 ## Grafana
 
 Grafana доступна по адресу:
-
 ```bash
 http://localhost:3000
+```
+
+Loki доступен по адресу:
+```bash
+http://localhost:3100
 ```
 
 ### Проверка через браузер
