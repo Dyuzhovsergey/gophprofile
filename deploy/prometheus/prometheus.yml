@@ -18,3 +18,22 @@ scrape_configs:
           - "worker:9091"
         labels:
           service: "gophprofile-worker"
+  - job_name: "rabbitmq"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "rabbitmq:15692"
+        labels:
+          service: "rabbitmq"          
+
+  - job_name: "rabbitmq-queues"
+    metrics_path: /metrics/detailed
+    params:
+      family:
+        - queue_coarse_metrics
+        - queue_consumer_count
+    static_configs:
+      - targets:
+          - "rabbitmq:15692"
+        labels:
+          service: "rabbitmq"          
