@@ -225,7 +225,9 @@ services:
       prometheus:
         condition: service_started
       loki:
-        condition: service_started  
+        condition: service_started
+      jaeger:
+        condition: service_started    
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
