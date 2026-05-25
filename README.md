@@ -252,7 +252,6 @@ HTTP/1.1 204 No Content
 ```
 
 ## Prometheus metrics
-
 Приложение отдаёт базовые Prometheus metrics на endpoint:
 
 ```bash
@@ -262,9 +261,16 @@ curl http://localhost:9090/metrics
 ## Prometheus
 
 Prometheus доступен по адресу:
-
 ```bash
 http://localhost:9092
+```
+
+## Grafana
+
+Grafana доступна по адресу:
+
+```bash
+http://localhost:3000
 ```
 
 ### Проверка через браузер
