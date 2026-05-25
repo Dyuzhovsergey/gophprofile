@@ -277,6 +277,14 @@ Loki доступен по адресу:
 http://localhost:3100
 ```
 
+## RabbitMQ metrics
+
+RabbitMQ отдаёт Prometheus metrics через встроенный plugin `rabbitmq_prometheus`.
+Endpoint с хоста:
+```bash
+curl http://localhost:15692/metrics
+```
+
 ### Проверка через браузер
 
 #### Откройте:
