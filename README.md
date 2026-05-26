@@ -268,74 +268,771 @@ User ID: user
 http://localhost:9090/web/gallery/user
 
 
-# Метрики
+## Observability
 
-## Prometheus metrics
-Приложение отдаёт базовые Prometheus metrics на endpoint:
+В проекте настроен локальный observability-стек:
+
+- structured JSON logs через `slog`;
+- distributed tracing через OpenTelemetry + Jaeger;
+- metrics через Prometheus;
+- dashboards через Grafana;
+- logs через Loki + Promtail;
+- alerts через Prometheus rules + Alertmanager.
+
+### Карта сервисов и портов
+
+| Сервис | URL | Назначение |
+|---|---|---|
+| GophProfile API | http://localhost:9090 | HTTP API сервиса |
+| Server metrics | http://localhost:9090/metrics | Prometheus metrics server-а |
+| Worker metrics | http://localhost:9091/metrics | Prometheus metrics worker-а |
+| Prometheus | http://localhost:9092 | Метрики и alerts |
+| Alertmanager | http://localhost:9093 | Просмотр alert-ов |
+| Grafana | http://localhost:3000 | Dashboards, logs, metrics |
+| Jaeger | http://localhost:16686 | Distributed traces |
+| Loki | http://localhost:3100 | Хранилище логов |
+| RabbitMQ UI | http://localhost:15672 | RabbitMQ Management UI |
+| RabbitMQ metrics | http://localhost:15692/metrics | RabbitMQ Prometheus metrics |
+| MinIO API | http://localhost:9000 | S3-compatible API |
+| MinIO Console | http://localhost:9001 | Web UI MinIO |
+| MinIO metrics | http://localhost:9000/minio/v2/metrics/cluster | MinIO Prometheus metrics |
+| PostgreSQL exporter | http://localhost:9187/metrics | PostgreSQL Prometheus metrics |
+
+### Запуск
 
 ```bash
-curl http://localhost:9090/metrics
+docker compose up -d --build
 ```
 
-## Prometheus
+Проверить контейнеры:
 
-Prometheus доступен по адресу:
 ```bash
-http://localhost:9092
+docker compose ps
 ```
 
-## Grafana
+Проверить API:
 
-Grafana доступна по адресу:
 ```bash
+curl -i http://localhost:9090/health
+```
+
+Проверить server metrics:
+
+```bash
+curl -i http://localhost:9090/metrics
+```
+
+Проверить worker metrics:
+
+```bash
+curl -i http://localhost:9091/metrics
+```
+
+Проверить Loki:
+
+```bash
+curl -i http://localhost:3100/ready
+```
+
+Проверить Alertmanager:
+
+```bash
+curl -i http://localhost:9093/-/ready
+```
+
+### Тестовый upload
+
+```bash
+curl -i -X POST http://localhost:9090/api/v1/avatars \
+  -H "X-User-ID: user" \
+  -F "file=@avatar.jpeg"
+```
+
+В ответе должен быть `id` аватарки и trace header:
+
+```text
+X-Trace-Id: ...
+```
+
+Пример получения аватарки:
+
+```bash
+curl -i http://localhost:9090/api/v1/avatars/<avatar_id>
+```
+
+Пример удаления:
+
+```bash
+curl -i -X DELETE http://localhost:9090/api/v1/avatars/<avatar_id> \
+  -H "X-User-ID: user"
+```
+
+---
+
+## Logs
+
+Логи server-а и worker-а пишутся в JSON-формате через `slog`.
+
+Основные поля:
+
+```text
+time
+level
+msg
+service
+environment
+component
+operation
+error
+user_id
+avatar_id
+trace_id
+span_id
+```
+
+Promtail собирает Docker-логи контейнеров:
+
+```text
+gophprofile-server
+gophprofile-worker
+```
+
+и отправляет их в Loki.
+
+### LogQL-запросы
+
+Открыть Grafana:
+
+```text
 http://localhost:3000
 ```
 
-Loki доступен по адресу:
-```bash
-http://localhost:3100
+Дальше:
+
+```text
+Explore -> Loki
 ```
 
-## RabbitMQ metrics
+Все логи server-а:
 
-RabbitMQ отдаёт Prometheus metrics через встроенный plugin `rabbitmq_prometheus`.
-Endpoint с хоста:
-```bash
-curl http://localhost:15692/metrics
+```logql
+{service="gophprofile-server"}
 ```
 
-## PostgreSQL metrics
+Все логи worker-а:
 
-PostgreSQL metrics собираются через `postgres_exporter`.
-Exporter доступен с хоста:
-
-```bash
-curl http://localhost:9187/metrics
-```
-## MinIO/S3 metrics
-
-Endpoints с хоста:
-```bash
-curl http://localhost:9000/minio/v2/metrics/cluster
-```
-```bash
-curl http://localhost:9000/minio/v2/metrics/bucket
-```
-```bash
-curl http://localhost:9000/minio/v2/metrics/node
+```logql
+{service="gophprofile-worker"}
 ```
 
-#### Prometheus собирает MinIO metrics через targets:
+Ошибки server-а:
 
+```logql
+{service="gophprofile-server", level="ERROR"}
+```
+
+Ошибки worker-а:
+
+```logql
+{service="gophprofile-worker", level="ERROR"}
+```
+
+Логи с trace ID:
+
+```logql
+{service="gophprofile-server"} |= "trace_id"
+```
+
+Логи по конкретному avatar ID:
+
+```logql
+{service="gophprofile-server"} |= "<avatar_id>"
+```
+
+Логи конкретной операции:
+
+```logql
+{service="gophprofile-server"} |= "http.get_avatar"
+```
+
+```logql
+{service="gophprofile-worker"} |= "worker.process_avatar_uploaded"
+```
+
+---
+
+## Tracing
+
+Tracing реализован через OpenTelemetry.
+
+Server и worker отправляют traces в Jaeger через OTLP HTTP endpoint:
+
+```text
+jaeger:4318
+```
+
+Jaeger UI:
+
+```text
+http://localhost:16686
+```
+
+Основные spans:
+
+```text
+HTTP:
+  GET /health
+  POST /api/v1/avatars
+  GET /api/v1/avatars/{avatar_id}
+  DELETE /api/v1/avatars/{avatar_id}
+
+AvatarService:
+  avatar_service.upload_avatar
+  avatar_service.get_avatar_by_id
+  avatar_service.get_avatar_thumbnail_by_id
+  avatar_service.get_avatar_metadata
+  avatar_service.list_avatars_by_user_id
+  avatar_service.delete_avatar_by_id
+
+PostgreSQL:
+  postgres.avatar.create_with_upload_event
+  postgres.avatar.get_by_id
+  postgres.avatar.list_by_user_id
+  postgres.avatar.soft_delete_with_delete_event
+
+S3/MinIO:
+  s3.upload
+  s3.download
+  s3.delete
+  s3.exists
+
+RabbitMQ:
+  rabbitmq.publish
+  rabbitmq.consume
+
+Worker:
+  worker.process_avatar_uploaded
+  worker.generate_thumbnails
+  worker.process_avatar_deleted
+```
+
+### Проверка trace
+
+Сделать запрос:
+
+```bash
+curl -i http://localhost:9090/health
+```
+
+В ответе должен быть заголовок:
+
+```text
+X-Trace-Id: ...
+```
+
+Открыть Jaeger:
+
+```text
+http://localhost:16686
+```
+
+Выбрать service:
+
+```text
+gophprofile-server
+```
+
+Нажать:
+
+```text
+Find Traces
+```
+
+### Корреляция logs -> traces
+
+Loki datasource настроен с derived field `TraceID`.
+
+Сценарий:
+
+1. Открыть Grafana.
+2. Перейти в `Explore -> Loki`.
+3. Выполнить запрос:
+
+```logql
+{service="gophprofile-server"} |= "trace_id"
+```
+
+4. Раскрыть строку лога.
+5. Нажать на derived field `TraceID`.
+6. Grafana откроет соответствующий trace через Jaeger datasource.
+
+---
+
+## Metrics
+
+Метрики собирает Prometheus:
+
+```text
+http://localhost:9092
+```
+
+Targets:
+
+```text
+server:8080/metrics
+worker:9091/metrics
+rabbitmq:15692/metrics
+rabbitmq:15692/metrics/detailed
+postgres-exporter:9187/metrics
 minio:9000/minio/v2/metrics/cluster
 minio:9000/minio/v2/metrics/bucket
 minio:9000/minio/v2/metrics/node
+```
 
+Проверка targets:
 
-## Alertmanager
+```text
+http://localhost:9092/targets
+```
 
-Alertmanager UI доступен по адресу:
+Все targets должны быть `UP`.
+
+### Основные PromQL-запросы
+
+Targets:
+
+```promql
+up
+```
+
+HTTP request rate:
+
+```promql
+sum by (method, route, status) (rate(gophprofile_http_requests_total[5m]))
+```
+
+HTTP 5xx error rate:
+
+```promql
+sum(rate(gophprofile_http_requests_total{status=~"5.."}[5m]))
+```
+
+HTTP p95 latency:
+
+```promql
+histogram_quantile(
+  0.95,
+  sum by (le, route) (rate(gophprofile_http_request_duration_seconds_bucket[5m]))
+)
+```
+
+Avatar uploads:
+
+```promql
+gophprofile_avatars_uploads_total
+```
+
+Avatar upload errors:
+
+```promql
+sum(rate(gophprofile_avatars_uploads_total{status="error"}[5m]))
+```
+
+Avatar processing:
+
+```promql
+gophprofile_avatars_processing_total
+```
+
+Avatar processing errors:
+
+```promql
+rate(gophprofile_avatars_processing_errors_total[5m])
+```
+
+Worker messages:
+
+```promql
+gophprofile_worker_messages_consumed_total
+```
+
+Worker failures:
+
+```promql
+gophprofile_worker_messages_failed_total
+```
+
+RabbitMQ queue depth:
+
+```promql
+rabbitmq_detailed_queue_messages{queue=~"avatar\\.(uploaded|deleted)\\.queue"}
+```
+
+RabbitMQ ready messages:
+
+```promql
+rabbitmq_detailed_queue_messages_ready{queue=~"avatar\\.(uploaded|deleted)\\.queue"}
+```
+
+RabbitMQ unacked messages:
+
+```promql
+rabbitmq_detailed_queue_messages_unacked{queue=~"avatar\\.(uploaded|deleted)\\.queue"}
+```
+
+RabbitMQ consumers:
+
+```promql
+rabbitmq_detailed_queue_consumers{queue=~"avatar\\.(uploaded|deleted)\\.queue"}
+```
+
+PostgreSQL status:
+
+```promql
+pg_up
+```
+
+PostgreSQL connections:
+
+```promql
+pg_stat_database_numbackends{datname="gophprofile"}
+```
+
+PostgreSQL DB size:
+
+```promql
+pg_database_size_bytes{datname="gophprofile"}
+```
+
+MinIO status:
+
+```promql
+up{service="minio"}
+```
+
+MinIO bucket storage:
+
+```promql
+minio_bucket_usage_total_bytes
+```
+
+MinIO bucket objects:
+
+```promql
+minio_bucket_usage_object_total
+```
+
+---
+
+## Grafana dashboards
+
+Grafana доступна по адресу:
+
+```text
+http://localhost:3000
+```
+
+Логин/пароль по умолчанию:
+
+```text
+admin / admin
+```
+
+Dashboards загружаются автоматически через provisioning.
+
+### Доступные dashboards
+
+```text
+GophProfile / GophProfile Service Overview
+GophProfile / GophProfile Worker & Queue
+GophProfile / GophProfile Business KPIs
+GophProfile / GophProfile Infrastructure
+```
+
+### Service Overview
+
+Показывает:
+
+```text
+request rate
+error rate
+p95 latency
+uploads total
+upload errors
+worker processed messages
+worker failed messages
+storage usage
+active worker jobs
+deleted avatars
+```
+
+### Worker & Queue
+
+Показывает:
+
+```text
+RabbitMQ queue depth
+RabbitMQ messages ready
+RabbitMQ messages unacked
+RabbitMQ consumers
+worker processing rate
+worker failed messages
+worker processing duration p95
+worker active jobs
+worker retries
+```
+
+### Business KPIs
+
+Показывает:
+
+```text
+successful uploads
+upload errors
+deleted avatars
+storage usage
+avatar processing statuses
+processing errors
+processing duration p95
+upload success ratio
+```
+
+### Infrastructure
+
+Показывает:
+
+```text
+Prometheus targets status
+PostgreSQL health, connections, DB size, transaction rate
+RabbitMQ queue depth, ready/unacked messages, consumers
+MinIO bucket storage, objects, request rate, error rate, capacity usage
+```
+
+---
+
+## Alerts
+
+Prometheus rules находятся в:
+
+```text
+deploy/prometheus/rules/gophprofile-alerts.yml
+```
+
+Alertmanager config:
+
+```text
+deploy/alertmanager/alertmanager.yml
+```
+
+Alertmanager UI:
+
+```text
+http://localhost:9093
+```
+
+Prometheus pages:
+
+```text
+http://localhost:9092/alerts
+http://localhost:9092/rules
+```
+
+На текущем этапе используется `noop` receiver: алерты видны в Alertmanager UI, но не отправляются во внешние каналы.
+
+### Пример проверки alert-а
+
+Остановить worker:
 
 ```bash
+docker compose stop worker
+```
+
+Через 1–2 минуты проверить:
+
+```text
+http://localhost:9092/alerts
 http://localhost:9093
+```
+
+Вернуть worker:
+
+```bash
+docker compose start worker
+```
+
+---
+
+## Диагностика сценария: 500 ошибка -> log -> trace -> metrics
+
+### 1. Получить 500
+
+Например, временно остановить MinIO:
+
+```bash
+docker compose stop minio
+```
+
+Запросить существующую аватарку:
+
+```bash
+curl -i http://localhost:9090/api/v1/avatars/<avatar_id>
+```
+
+Вернуть MinIO:
+
+```bash
+docker compose start minio
+```
+
+В ответе будет:
+
+```text
+HTTP/1.1 500 Internal Server Error
+X-Trace-Id: ...
+```
+
+### 2. Найти лог ошибки
+
+Открыть Grafana:
+
+```text
+http://localhost:3000
+```
+
+Перейти:
+
+```text
+Explore -> Loki
+```
+
+Запрос:
+
+```logql
+{service="gophprofile-server", level="ERROR"} |= "<avatar_id>"
+```
+
+В логе должны быть поля:
+
+```text
+component
+operation
+error
+avatar_id
+trace_id
+span_id
+```
+
+### 3. Перейти из лога в trace
+
+В раскрытой строке лога нажать derived field:
+
+```text
+TraceID
+```
+
+Grafana откроет trace в Jaeger datasource.
+
+Если переход не сработал, можно вручную открыть:
+
+```text
+http://localhost:16686
+```
+
+И найти trace по `trace_id`.
+
+### 4. Проверить метрики
+
+HTTP 5xx:
+
+```promql
+sum(rate(gophprofile_http_requests_total{status=~"5.."}[5m]))
+```
+
+Ошибки upload:
+
+```promql
+sum(rate(gophprofile_avatars_uploads_total{status="error"}[5m]))
+```
+
+Ошибки worker-а:
+
+```promql
+sum(rate(gophprofile_worker_messages_failed_total[5m]))
+```
+
+Ошибки обработки аватарок:
+
+```promql
+rate(gophprofile_avatars_processing_errors_total[5m])
+```
+
+Состояние MinIO:
+
+```promql
+up{service="minio"}
+```
+
+### 5. Проверить dashboards
+
+Открыть Grafana dashboards:
+
+```text
+GophProfile Service Overview
+GophProfile Business KPIs
+GophProfile Infrastructure
+```
+
+Проверить:
+
+```text
+HTTP error rate
+p95 latency
+MinIO target status
+avatar processing errors
+```
+
+---
+
+## Быстрые команды диагностики
+
+Server logs:
+
+```bash
+docker logs gophprofile-server --tail=100
+```
+
+Worker logs:
+
+```bash
+docker logs gophprofile-worker --tail=100
+```
+
+Server metrics:
+
+```bash
+curl -s http://localhost:9090/metrics | grep gophprofile_http
+```
+
+Worker metrics:
+
+```bash
+curl -s http://localhost:9091/metrics | grep gophprofile_worker
+```
+
+Prometheus targets:
+
+```bash
+curl -s http://localhost:9092/api/v1/targets | grep health
+```
+
+Loki ready:
+
+```bash
+curl -i http://localhost:3100/ready
+```
+
+Alertmanager ready:
+
+```bash
+curl -i http://localhost:9093/-/ready
 ```
