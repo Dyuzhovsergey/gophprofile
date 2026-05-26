@@ -251,6 +251,25 @@ curl -i -X DELETE http://localhost:9090/api/v1/users/user/avatar \
 HTTP/1.1 204 No Content
 ```
 
+### Проверка через браузер
+
+#### Откройте:
+
+http://localhost:9090/web/upload
+
+#### Укажите:
+
+User ID: user
+
+#### Выберите изображение и нажмите загрузку.
+
+#### После успешной загрузки можно открыть галерею:
+
+http://localhost:9090/web/gallery/user
+
+
+# Метрики
+
 ## Prometheus metrics
 Приложение отдаёт базовые Prometheus metrics на endpoint:
 
@@ -285,19 +304,29 @@ Endpoint с хоста:
 curl http://localhost:15692/metrics
 ```
 
-### Проверка через браузер
+## PostgreSQL metrics
 
-#### Откройте:
+PostgreSQL metrics собираются через `postgres_exporter`.
+Exporter доступен с хоста:
 
-http://localhost:9090/web/upload
+```bash
+curl http://localhost:9187/metrics
+```
+## MinIO/S3 metrics
 
-#### Укажите:
+Endpoints с хоста:
+```bash
+curl http://localhost:9000/minio/v2/metrics/cluster
+```
+```bash
+curl http://localhost:9000/minio/v2/metrics/bucket
+```
+```bash
+curl http://localhost:9000/minio/v2/metrics/node
+```
 
-User ID: user
+#### Prometheus собирает MinIO metrics через targets:
 
-#### Выберите изображение и нажмите загрузку.
-
-#### После успешной загрузки можно открыть галерею:
-
-http://localhost:9090/web/gallery/user
-
+minio:9000/minio/v2/metrics/cluster
+minio:9000/minio/v2/metrics/bucket
+minio:9000/minio/v2/metrics/node

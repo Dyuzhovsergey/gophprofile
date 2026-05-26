@@ -16,6 +16,20 @@ services:
       timeout: 3s
       retries: 10
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
+    container_name: gophprofile-postgres-exporter
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/gophprofile?sslmode=disable"
+      DATA_SOURCE_USER: "gophprofile"
+      DATA_SOURCE_PASS: "gophprofile"
+    ports:
+      - "9187:9187"
+
   migrate:
     image: golang:1.25-alpine
     container_name: gophprofile-migrate
@@ -39,6 +53,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "9000:9000"
       - "9001:9001"
