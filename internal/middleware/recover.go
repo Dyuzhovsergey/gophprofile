@@ -24,6 +24,8 @@ func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 						"panic recovered",
 						observabilitylogging.AppendTraceAttrs(
 							r.Context(),
+							slog.String("component", observabilitylogging.ComponentHTTP),
+							slog.String("operation", "http.recover"),
 							slog.Any("panic", recovered),
 							slog.String("method", r.Method),
 							slog.String("path", r.URL.Path),

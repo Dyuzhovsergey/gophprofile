@@ -43,7 +43,17 @@ func main() {
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
-		log.Error("failed to connect to postgres", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to connect to postgres",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentPostgres,
+				"postgres.connect",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -84,13 +94,33 @@ func main() {
 
 	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
-		log.Error("failed to create s3 storage client", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create s3 storage client",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentS3,
+				"s3.create_client",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 
 	avatarEventPublisher, err := rabbitmq.NewPublisher(cfg.RabbitMQ)
 	if err != nil {
-		log.Error("failed to create rabbitmq publisher", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create rabbitmq publisher",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentRabbitMQ,
+				"rabbitmq.create_publisher",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 	defer func() {
@@ -169,7 +199,17 @@ func main() {
 
 	case err := <-serverErr:
 		if err != nil {
-			log.Error("GophProfile server stopped with error", logger.Err(err))
+			log.LogAttrs(
+				ctx,
+				slog.LevelError,
+				"GophProfile server stopped with error",
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentApp,
+					"server.listen",
+					err,
+				)...,
+			)
 			os.Exit(1)
 		}
 

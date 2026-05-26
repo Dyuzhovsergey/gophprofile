@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 )
 
@@ -128,13 +129,20 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 				)
 			}
 
-			d.log.Warn(
+			d.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"failed to publish outbox event",
-				slog.String("event_id", event.ID),
-				slog.String("event_type", string(event.EventType)),
-				slog.Int("attempts", event.Attempts),
-				slog.Time("next_attempt_at", availableAt),
-				logger.Err(err),
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentOutbox,
+					"outbox.publish_event",
+					err,
+					slog.String("event_id", event.ID),
+					slog.String("event_type", string(event.EventType)),
+					slog.Int("attempts", event.Attempts),
+					slog.Time("next_attempt_at", availableAt),
+				)...,
 			)
 
 			continue
@@ -157,7 +165,17 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 // dispatchAndLog выполняет одну итерацию dispatcher-а и логирует ошибку.
 func (d *Dispatcher) dispatchAndLog(ctx context.Context) {
 	if err := d.DispatchOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		d.log.Error("outbox dispatch iteration failed", logger.Err(err))
+		d.log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"outbox dispatch iteration failed",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentOutbox,
+				"outbox.dispatch_iteration",
+				err,
+			)...,
+		)
 	}
 }
 

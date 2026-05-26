@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
-	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
@@ -115,10 +114,12 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			ctx,
 			slog.LevelError,
 			"failed to get avatar metadata",
-			observabilitylogging.AppendTraceAttrs(
+			observabilitylogging.ErrorAttrs(
 				ctx,
+				observabilitylogging.ComponentWorker,
+				"worker.get_avatar_metadata",
+				err,
 				slog.String("avatar_id", avatarID),
-				logger.Err(err),
 			)...,
 		)
 
@@ -170,11 +171,14 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			ctx,
 			slog.LevelError,
 			"failed to download original avatar",
-			observabilitylogging.AppendTraceAttrs(
+			observabilitylogging.ErrorAttrs(
 				ctx,
+				observabilitylogging.ComponentS3,
+				"s3.download_original_avatar",
+				err,
 				slog.String("avatar_id", avatar.ID),
+				slog.String("user_id", avatar.UserID),
 				slog.String("s3_key", avatar.S3Key),
-				logger.Err(err),
 			)...,
 		)
 
@@ -200,11 +204,14 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			ctx,
 			slog.LevelError,
 			"failed to process avatar image",
-			observabilitylogging.AppendTraceAttrs(
+			observabilitylogging.ErrorAttrs(
 				ctx,
+				observabilitylogging.ComponentWorker,
+				"worker.generate_thumbnails",
+				err,
 				slog.String("avatar_id", avatar.ID),
+				slog.String("user_id", avatar.UserID),
 				slog.String("s3_key", avatar.S3Key),
-				logger.Err(err),
 			)...,
 		)
 
@@ -291,10 +298,12 @@ func (p *AvatarProcessor) markProcessingFailed(ctx context.Context, avatarID str
 			ctx,
 			slog.LevelError,
 			"failed to mark avatar processing as failed",
-			observabilitylogging.AppendTraceAttrs(
+			observabilitylogging.ErrorAttrs(
 				ctx,
+				observabilitylogging.ComponentWorker,
+				"worker.mark_processing_failed",
+				err,
 				slog.String("avatar_id", avatarID),
-				logger.Err(err),
 			)...,
 		)
 	}

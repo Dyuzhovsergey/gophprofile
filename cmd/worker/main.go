@@ -97,7 +97,17 @@ func main() {
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
-		log.Error("failed to connect to postgres", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to connect to postgres",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentPostgres,
+				"postgres.connect",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -108,7 +118,17 @@ func main() {
 
 	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
-		log.Error("failed to create s3 storage client", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create s3 storage client",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentS3,
+				"s3.create_client",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 
@@ -118,7 +138,17 @@ func main() {
 
 	consumer, err := rabbitmq.NewConsumer(cfg.RabbitMQ)
 	if err != nil {
-		log.Error("failed to create rabbitmq consumer", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create rabbitmq consumer",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentRabbitMQ,
+				"rabbitmq.create_consumer",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 	defer func() {
@@ -145,7 +175,17 @@ func main() {
 		processor.HandleAvatarUploaded,
 		processor.HandleAvatarDeleted,
 	); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("failed to consume avatar events", logger.Err(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to consume avatar events",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentWorker,
+				"worker.consume_avatar_events",
+				err,
+			)...,
+		)
 		os.Exit(1)
 	}
 
