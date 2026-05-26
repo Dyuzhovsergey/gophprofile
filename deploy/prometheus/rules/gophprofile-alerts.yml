@@ -1,0 +1,125 @@
+groups:
+  - name: gophprofile-service
+    rules:
+      - alert: GophProfileTargetDown
+        expr: up{job=~"gophprofile-server|gophprofile-worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: gophprofile
+        annotations:
+          summary: "GophProfile target is down"
+          description: "Prometheus target {{ $labels.job }} is down."
+
+      - alert: GophProfileHighHTTPErrorRate
+        expr: |
+          (
+            sum(rate(gophprofile_http_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(gophprofile_http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: gophprofile-server
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: "HTTP 5xx error rate is above 5% for more than 2 minutes."
+
+      - alert: GophProfileHighHTTPLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(gophprofile_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 2m
+        labels:
+          severity: warning
+          service: gophprofile-server
+        annotations:
+          summary: "High HTTP p95 latency"
+          description: "HTTP p95 latency is above 1 second for more than 2 minutes."
+
+  - name: gophprofile-worker
+    rules:
+      - alert: GophProfileWorkerMessageFailures
+        expr: sum(rate(gophprofile_worker_messages_failed_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: gophprofile-worker
+        annotations:
+          summary: "Worker message processing failures"
+          description: "Worker has failed message processing events."
+
+      - alert: GophProfileAvatarProcessingErrors
+        expr: rate(gophprofile_avatars_processing_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: gophprofile-worker
+        annotations:
+          summary: "Avatar processing errors"
+          description: "Avatar processing errors detected."
+
+      - alert: GophProfileRabbitMQQueueBacklog
+        expr: |
+          sum(
+            rabbitmq_detailed_queue_messages_ready{
+              queue=~"avatar\\.(uploaded|deleted)\\.queue"
+            }
+          ) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: rabbitmq
+        annotations:
+          summary: "RabbitMQ queue backlog"
+          description: "RabbitMQ avatar queues have more than 10 ready messages."
+
+      - alert: GophProfileRabbitMQNoConsumers
+        expr: |
+          sum(
+            rabbitmq_detailed_queue_consumers{
+              queue=~"avatar\\.(uploaded|deleted)\\.queue"
+            }
+          ) < 1
+        for: 2m
+        labels:
+          severity: critical
+          service: rabbitmq
+        annotations:
+          summary: "RabbitMQ queues have no consumers"
+          description: "Avatar queues have no active consumers."
+
+  - name: gophprofile-infrastructure
+    rules:
+      - alert: GophProfilePostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "postgres_exporter reports pg_up == 0."
+
+      - alert: GophProfileRabbitMQDown
+        expr: up{job="rabbitmq"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: rabbitmq
+        annotations:
+          summary: "RabbitMQ metrics target is down"
+          description: "Prometheus cannot scrape RabbitMQ metrics."
+
+      - alert: GophProfileMinIODown
+        expr: up{job=~"minio-cluster|minio-bucket|minio-node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: minio
+        annotations:
+          summary: "MinIO metrics target is down"
+          description: "Prometheus cannot scrape one or more MinIO metrics endpoints."

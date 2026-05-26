@@ -330,3 +330,12 @@ curl http://localhost:9000/minio/v2/metrics/node
 minio:9000/minio/v2/metrics/cluster
 minio:9000/minio/v2/metrics/bucket
 minio:9000/minio/v2/metrics/node
+
+
+## Alertmanager
+
+Alertmanager UI доступен по адресу:
+
+```bash
+http://localhost:9093
+```
