@@ -1036,3 +1036,14 @@ Alertmanager ready:
 ```bash
 curl -i http://localhost:9093/-/ready
 ```
+
+
+
+### OpenSearch API:
+```bash
+http://localhost:9200
+```
+### OpenSearch Dashboards:
+```bash
+http://localhost:5601
+```
