@@ -151,6 +151,7 @@ func main() {
 	avatarHandler := handlers.NewAvatarHandler(
 		avatarService,
 		cfg.MaxUploadSizeBytes,
+		log,
 	)
 
 	webHandler := handlers.NewWebHandler(
