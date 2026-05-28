@@ -1037,8 +1037,6 @@ Alertmanager ready:
 curl -i http://localhost:9093/-/ready
 ```
 
-
-
 ### OpenSearch API:
 ```bash
 http://localhost:9200

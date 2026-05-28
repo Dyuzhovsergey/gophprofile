@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,7 +32,8 @@ func main() {
 		observabilitylogging.DefaultEnvironment,
 	)
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, "init logger:", err)
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
