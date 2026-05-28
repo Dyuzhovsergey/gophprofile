@@ -28,8 +28,6 @@ func Init(level string, serviceName string, environment string) (*slog.Logger, e
 		slog.String("environment", cfg.Environment),
 	)
 
-	slog.SetDefault(log)
-
 	return log, nil
 }
 
