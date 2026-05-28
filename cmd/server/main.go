@@ -172,7 +172,14 @@ func main() {
 		avatarStorage,
 		avatarEventPublisher,
 	)
-	router := handlers.NewRouter(log, healthHandler, avatarHandler, appMetrics)
+
+	router := handlers.NewRouter(
+		log,
+		healthHandler,
+		avatarHandler,
+		webHandler,
+		appMetrics,
+	)
 
 	server := &http.Server{
 		Addr:              cfg.Address,

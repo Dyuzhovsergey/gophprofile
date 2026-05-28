@@ -15,6 +15,7 @@ func NewRouter(
 	log *slog.Logger,
 	healthHandler *HealthHandler,
 	avatarHandler *AvatarHandler,
+	webHandler *WebHandler,
 	appMetrics *observabilitymetrics.AppMetrics,
 ) http.Handler {
 	router := chi.NewRouter()
