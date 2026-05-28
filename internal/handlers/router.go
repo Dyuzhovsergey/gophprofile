@@ -15,18 +15,18 @@ func NewRouter(
 	log *slog.Logger,
 	healthHandler *HealthHandler,
 	avatarHandler *AvatarHandler,
-	webHandler *WebHandler,
+	appMetrics *observabilitymetrics.AppMetrics,
 ) http.Handler {
 	router := chi.NewRouter()
 
 	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
 	router.Use(middleware.RequestLogger(log))
-	router.Use(middleware.HTTPMetrics())
+	router.Use(middleware.HTTPMetrics(appMetrics.HTTP))
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.CORS)
 
 	router.Get("/health", healthHandler.Handle)
-	router.Handle("/metrics", observabilitymetrics.Handler())
+	router.Handle("/metrics", appMetrics.Handler())
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/web/upload", http.StatusSeeOther)
 	})

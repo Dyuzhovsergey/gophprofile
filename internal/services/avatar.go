@@ -49,6 +49,7 @@ type AvatarService struct {
 	storage            AvatarStorage
 	maxUploadSizeBytes int64
 	log                *slog.Logger
+	avatarMetrics      *observabilitymetrics.AvatarMetrics
 }
 
 // UploadAvatarInput содержит данные для загрузки аватарки.
@@ -92,6 +93,13 @@ func NewAvatarService(
 	}
 }
 
+// WithAvatarMetrics подключает бизнес-метрики аватарок к сервису.
+func (s *AvatarService) WithAvatarMetrics(metrics *observabilitymetrics.AvatarMetrics) *AvatarService {
+	s.avatarMetrics = metrics
+
+	return s
+}
+
 // UploadAvatar загружает файл аватарки в storage и сохраняет метаданные в repository.
 func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInput) (avatar domain.Avatar, err error) {
 	ctx, span := observabilitytracing.StartSpan(
@@ -115,10 +123,10 @@ func (s *AvatarService) UploadAvatar(ctx context.Context, input UploadAvatarInpu
 			status = observabilitymetrics.StatusError
 		}
 
-		observabilitymetrics.RecordAvatarUpload(status, time.Since(startedAt))
+		s.avatarMetrics.RecordAvatarUpload(status, time.Since(startedAt))
 
 		if err == nil {
-			observabilitymetrics.AddAvatarStorageBytes(input.SizeBytes)
+			s.avatarMetrics.AddAvatarStorageBytes(input.SizeBytes)
 		}
 	}()
 
@@ -474,10 +482,10 @@ func (s *AvatarService) DeleteAvatarByID(
 			status = observabilitymetrics.StatusError
 		}
 
-		observabilitymetrics.RecordAvatarDelete(status)
+		s.avatarMetrics.RecordAvatarDelete(status)
 
 		if err == nil {
-			observabilitymetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
+			s.avatarMetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
 		}
 	}()
 
@@ -564,10 +572,10 @@ func (s *AvatarService) DeleteCurrentAvatarByUserID(
 			status = observabilitymetrics.StatusError
 		}
 
-		observabilitymetrics.RecordAvatarDelete(status)
+		s.avatarMetrics.RecordAvatarDelete(status)
 
 		if err == nil {
-			observabilitymetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
+			s.avatarMetrics.AddAvatarStorageBytes(-deletedAvatar.SizeBytes)
 		}
 	}()
 

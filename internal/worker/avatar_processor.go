@@ -49,6 +49,7 @@ type AvatarProcessor struct {
 	repo           AvatarRepository
 	storage        AvatarStorage
 	imageProcessor ImageProcessor
+	avatarMetrics  *observabilitymetrics.AvatarMetrics
 }
 
 // NewAvatarProcessor создаёт обработчик событий аватарок.
@@ -64,6 +65,13 @@ func NewAvatarProcessor(
 		storage:        storage,
 		imageProcessor: imageProcessor,
 	}
+}
+
+// WithAvatarMetrics подключает бизнес-метрики аватарок к processor-у.
+func (p *AvatarProcessor) WithAvatarMetrics(metrics *observabilitymetrics.AvatarMetrics) *AvatarProcessor {
+	p.avatarMetrics = metrics
+
+	return p
 }
 
 // HandleAvatarUploaded обрабатывает событие загрузки аватарки.
@@ -88,7 +96,7 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 			processingStatus = observabilitymetrics.StatusError
 		}
 
-		observabilitymetrics.RecordAvatarProcessing(processingStatus, time.Since(startedAt))
+		p.avatarMetrics.RecordAvatarProcessing(processingStatus, time.Since(startedAt))
 	}()
 
 	avatarID := strings.TrimSpace(event.AvatarID)
@@ -286,7 +294,7 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 		attribute.Int("thumbnails_count", len(result.Thumbnails)),
 	)
 
-	observabilitymetrics.AddAvatarStorageBytes(thumbnailsSizeBytes)
+	p.avatarMetrics.AddAvatarStorageBytes(thumbnailsSizeBytes)
 
 	return nil
 }
@@ -383,7 +391,7 @@ func (p *AvatarProcessor) HandleAvatarDeleted(ctx context.Context, event domain.
 		)...,
 	)
 
-	observabilitymetrics.RecordAvatarDelete(observabilitymetrics.StatusSuccess)
+	p.avatarMetrics.RecordAvatarDelete(observabilitymetrics.StatusSuccess)
 
 	span.SetAttributes(attribute.Bool("deleted_from_s3", true))
 

@@ -39,7 +39,7 @@ func (w *metricResponseWriter) Write(data []byte) (int, error) {
 }
 
 // HTTPMetrics собирает Prometheus-метрики по HTTP-запросам.
-func HTTPMetrics() func(http.Handler) http.Handler {
+func HTTPMetrics(metrics *observabilitymetrics.HTTPMetrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startedAt := time.Now()
@@ -49,8 +49,8 @@ func HTTPMetrics() func(http.Handler) http.Handler {
 			}
 
 			routeForInFlight := routePattern(r)
-			observabilitymetrics.IncHTTPRequestsInFlight(r.Method, routeForInFlight)
-			defer observabilitymetrics.DecHTTPRequestsInFlight(r.Method, routeForInFlight)
+			metrics.IncHTTPRequestsInFlight(r.Method, routeForInFlight)
+			defer metrics.DecHTTPRequestsInFlight(r.Method, routeForInFlight)
 
 			next.ServeHTTP(wrappedWriter, r)
 
@@ -60,7 +60,7 @@ func HTTPMetrics() func(http.Handler) http.Handler {
 
 			route := routePattern(r)
 
-			observabilitymetrics.ObserveHTTPRequest(
+			metrics.ObserveHTTPRequest(
 				r.Method,
 				route,
 				wrappedWriter.statusCode,

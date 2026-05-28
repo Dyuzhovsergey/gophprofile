@@ -23,10 +23,11 @@ type AvatarDeletedHandler func(ctx context.Context, event domain.AvatarDeletedEv
 
 // Consumer читает события аватарок из RabbitMQ.
 type Consumer struct {
-	conn        *amqp.Connection
-	channel     *amqp.Channel
-	uploadQueue string
-	deleteQueue string
+	conn          *amqp.Connection
+	channel       *amqp.Channel
+	uploadQueue   string
+	deleteQueue   string
+	workerMetrics *observabilitymetrics.WorkerMetrics
 }
 
 // rabbitMQConsumeAttrs возвращает общие атрибуты для RabbitMQ consume span.
@@ -93,6 +94,13 @@ func NewConsumer(cfg config.RabbitMQConfig) (*Consumer, error) {
 	}
 
 	return consumer, nil
+}
+
+// WithWorkerMetrics подключает Prometheus-метрики worker-а к consumer-у.
+func (c *Consumer) WithWorkerMetrics(metrics *observabilitymetrics.WorkerMetrics) *Consumer {
+	c.workerMetrics = metrics
+
+	return c
 }
 
 // Close закрывает канал и соединение с RabbitMQ.
@@ -214,7 +222,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarUploadedDelivery(ctx, c.uploadQueue, delivery, uploadHandler); err != nil {
+			if err := handleAvatarUploadedDelivery(ctx, c.uploadQueue, delivery, uploadHandler, c.workerMetrics); err != nil {
 				return err
 			}
 
@@ -224,7 +232,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarDeletedDelivery(ctx, c.deleteQueue, delivery, deleteHandler); err != nil {
+			if err := handleAvatarDeletedDelivery(ctx, c.deleteQueue, delivery, deleteHandler, c.workerMetrics); err != nil {
 				return err
 			}
 		}
@@ -239,6 +247,7 @@ func handleAvatarUploadedDelivery(
 	queue string,
 	delivery amqp.Delivery,
 	handler AvatarUploadHandler,
+	workerMetrics *observabilitymetrics.WorkerMetrics,
 ) error {
 	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
 
@@ -249,14 +258,14 @@ func handleAvatarUploadedDelivery(
 	)
 
 	workerStatus := observabilitymetrics.StatusSuccess
-	startedAt := observabilitymetrics.StartWorkerJob(eventTypeAvatarUploaded)
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
 
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
 
-		observabilitymetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
+		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarUploadEvent
@@ -300,6 +309,7 @@ func handleAvatarDeletedDelivery(
 	queue string,
 	delivery amqp.Delivery,
 	handler AvatarDeletedHandler,
+	workerMetrics *observabilitymetrics.WorkerMetrics,
 ) error {
 	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
 
@@ -310,14 +320,14 @@ func handleAvatarDeletedDelivery(
 	)
 
 	workerStatus := observabilitymetrics.StatusSuccess
-	startedAt := observabilitymetrics.StartWorkerJob(eventTypeAvatarDeleted)
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
 
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
 
-		observabilitymetrics.FinishWorkerJob(eventTypeAvatarDeleted, workerStatus, startedAt)
+		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarDeletedEvent

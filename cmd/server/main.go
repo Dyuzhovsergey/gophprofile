@@ -15,6 +15,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
@@ -34,6 +35,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "init logger:", err)
 		os.Exit(1)
 	}
+
+	appMetrics := observabilitymetrics.New()
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -149,6 +152,7 @@ func main() {
 		cfg.MaxUploadSizeBytes,
 		log,
 	)
+	avatarService.WithAvatarMetrics(appMetrics.Avatar)
 
 	avatarHandler := handlers.NewAvatarHandler(
 		avatarService,
@@ -168,7 +172,7 @@ func main() {
 		avatarStorage,
 		avatarEventPublisher,
 	)
-	router := handlers.NewRouter(log, healthHandler, avatarHandler, webHandler)
+	router := handlers.NewRouter(log, healthHandler, avatarHandler, appMetrics)
 
 	server := &http.Server{
 		Addr:              cfg.Address,

@@ -36,6 +36,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	appMetrics := observabilitymetrics.New()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -69,7 +71,7 @@ func main() {
 	)
 
 	metricsMux := http.NewServeMux()
-	metricsMux.Handle("/metrics", observabilitymetrics.Handler())
+	metricsMux.Handle("/metrics", appMetrics.Handler())
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -159,12 +161,16 @@ func main() {
 		}
 	}()
 
+	consumer.WithWorkerMetrics(appMetrics.Worker)
+
 	processor := avatarworker.NewAvatarProcessor(
 		log,
 		avatarRepository,
 		avatarStorage,
 		imageService,
 	)
+
+	processor.WithAvatarMetrics(appMetrics.Avatar)
 
 	log.Info(
 		"GophProfile worker started",
