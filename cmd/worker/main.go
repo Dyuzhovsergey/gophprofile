@@ -171,6 +171,7 @@ func main() {
 	)
 
 	processor.WithAvatarMetrics(appMetrics.Avatar)
+	consumer.WithLogger(log)
 
 	log.Info(
 		"GophProfile worker started",
