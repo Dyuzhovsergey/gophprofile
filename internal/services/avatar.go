@@ -69,7 +69,6 @@ type DownloadAvatarResult struct {
 }
 
 // NewAvatarService создаёт сервис управления аватарками.
-// NewAvatarService создаёт сервис управления аватарками.
 func NewAvatarService(
 	repo AvatarRepository,
 	storage AvatarStorage,

@@ -346,7 +346,6 @@ func (h *AvatarHandler) DeleteCurrentByUserID(w http.ResponseWriter, r *http.Req
 }
 
 // handleDeleteByIDError преобразует ошибки удаления аватарки в HTTP-ответы.
-// handleDeleteByIDError преобразует ошибки удаления аватарки в HTTP-ответы.
 func (h *AvatarHandler) handleDeleteByIDError(
 	w http.ResponseWriter,
 	r *http.Request,

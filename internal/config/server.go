@@ -25,7 +25,6 @@ const (
 )
 
 // ServerConfig хранит настройки HTTP-сервера.
-// ServerConfig хранит настройки HTTP-сервера.
 type ServerConfig struct {
 	Address            string
 	LogLevel           string
