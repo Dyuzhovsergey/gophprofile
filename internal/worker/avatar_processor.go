@@ -118,19 +118,6 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	avatar, err := p.repo.GetByID(ctx, avatarID)
 	if err != nil {
-		p.log.LogAttrs(
-			ctx,
-			slog.LevelError,
-			"failed to get avatar metadata",
-			observabilitylogging.ErrorAttrs(
-				ctx,
-				observabilitylogging.ComponentWorker,
-				"worker.get_avatar_metadata",
-				err,
-				slog.String("avatar_id", avatarID),
-			)...,
-		)
-
 		return fmt.Errorf("get avatar metadata: %w", err)
 	}
 
@@ -175,21 +162,6 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 
 	originalData, _, err := p.storage.Download(ctx, avatar.S3Key)
 	if err != nil {
-		p.log.LogAttrs(
-			ctx,
-			slog.LevelError,
-			"failed to download original avatar",
-			observabilitylogging.ErrorAttrs(
-				ctx,
-				observabilitylogging.ComponentS3,
-				"s3.download_original_avatar",
-				err,
-				slog.String("avatar_id", avatar.ID),
-				slog.String("user_id", avatar.UserID),
-				slog.String("s3_key", avatar.S3Key),
-			)...,
-		)
-
 		p.markProcessingFailed(ctx, avatar.ID)
 
 		return fmt.Errorf("download original avatar: %w", err)
@@ -207,21 +179,6 @@ func (p *AvatarProcessor) HandleAvatarUploaded(ctx context.Context, event domain
 	if err != nil {
 		observabilitytracing.RecordError(generateSpan, err)
 		generateSpan.End()
-
-		p.log.LogAttrs(
-			ctx,
-			slog.LevelError,
-			"failed to process avatar image",
-			observabilitylogging.ErrorAttrs(
-				ctx,
-				observabilitylogging.ComponentWorker,
-				"worker.generate_thumbnails",
-				err,
-				slog.String("avatar_id", avatar.ID),
-				slog.String("user_id", avatar.UserID),
-				slog.String("s3_key", avatar.S3Key),
-			)...,
-		)
 
 		p.markProcessingFailed(ctx, avatar.ID)
 
