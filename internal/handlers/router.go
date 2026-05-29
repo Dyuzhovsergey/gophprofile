@@ -1,27 +1,33 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 )
 
 // NewRouter создаёт HTTP-router приложения GophProfile.
 func NewRouter(
-	log *zap.Logger,
+	log *slog.Logger,
 	healthHandler *HealthHandler,
 	avatarHandler *AvatarHandler,
 	webHandler *WebHandler,
+	appMetrics *observabilitymetrics.AppMetrics,
 ) http.Handler {
 	router := chi.NewRouter()
 
-	router.Use(middleware.Recover(log))
+	router.Use(middleware.Tracing(observabilitylogging.ServiceNameServer, router))
 	router.Use(middleware.RequestLogger(log))
+	router.Use(middleware.HTTPMetrics(appMetrics.HTTP))
+	router.Use(middleware.Recover(log))
 	router.Use(middleware.CORS)
 
 	router.Get("/health", healthHandler.Handle)
+	router.Handle("/metrics", appMetrics.Handler())
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/web/upload", http.StatusSeeOther)
 	})

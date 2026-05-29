@@ -5,11 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
+
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AvatarUploadHandler обрабатывает событие загрузки аватарки.
@@ -20,10 +27,26 @@ type AvatarDeletedHandler func(ctx context.Context, event domain.AvatarDeletedEv
 
 // Consumer читает события аватарок из RabbitMQ.
 type Consumer struct {
-	conn        *amqp.Connection
-	channel     *amqp.Channel
-	uploadQueue string
-	deleteQueue string
+	conn          *amqp.Connection
+	channel       *amqp.Channel
+	uploadQueue   string
+	deleteQueue   string
+	workerMetrics *observabilitymetrics.WorkerMetrics
+	log           *slog.Logger
+}
+
+// rabbitMQConsumeAttrs возвращает общие атрибуты для RabbitMQ consume span.
+func rabbitMQConsumeAttrs(delivery amqp.Delivery, queue string, eventType string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.operation", "consume"),
+		attribute.String("messaging.destination.name", strings.TrimSpace(queue)),
+		attribute.String("messaging.rabbitmq.exchange", strings.TrimSpace(delivery.Exchange)),
+		attribute.String("messaging.rabbitmq.routing_key", strings.TrimSpace(delivery.RoutingKey)),
+		attribute.String("messaging.message.id", strings.TrimSpace(delivery.MessageId)),
+		attribute.String("messaging.message.type", strings.TrimSpace(eventType)),
+		attribute.Int("messaging.message.body.size", len(delivery.Body)),
+	}
 }
 
 // NewConsumer создаёт RabbitMQ consumer и объявляет exchange, queue и binding.
@@ -68,6 +91,7 @@ func NewConsumer(cfg config.RabbitMQConfig) (*Consumer, error) {
 		channel:     channel,
 		uploadQueue: cfg.UploadQueue,
 		deleteQueue: cfg.DeleteQueue,
+		log:         logger.NewNop(),
 	}
 
 	if err := consumer.declareUploadTopology(cfg); err != nil {
@@ -76,6 +100,22 @@ func NewConsumer(cfg config.RabbitMQConfig) (*Consumer, error) {
 	}
 
 	return consumer, nil
+}
+
+// WithWorkerMetrics подключает Prometheus-метрики worker-а к consumer-у.
+func (c *Consumer) WithWorkerMetrics(metrics *observabilitymetrics.WorkerMetrics) *Consumer {
+	c.workerMetrics = metrics
+
+	return c
+}
+
+// WithLogger подключает логгер к RabbitMQ consumer-у.
+func (c *Consumer) WithLogger(log *slog.Logger) *Consumer {
+	if log != nil {
+		c.log = log
+	}
+
+	return c
 }
 
 // Close закрывает канал и соединение с RabbitMQ.
@@ -197,7 +237,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarUploadedDelivery(ctx, delivery, uploadHandler); err != nil {
+			if err := handleAvatarUploadedDelivery(ctx, c.uploadQueue, delivery, uploadHandler, c.workerMetrics, c.log); err != nil {
 				return err
 			}
 
@@ -207,7 +247,7 @@ func (c *Consumer) ConsumeAvatarEvents(
 				continue
 			}
 
-			if err := handleAvatarDeletedDelivery(ctx, delivery, deleteHandler); err != nil {
+			if err := handleAvatarDeletedDelivery(ctx, c.deleteQueue, delivery, deleteHandler, c.workerMetrics, c.log); err != nil {
 				return err
 			}
 		}
@@ -219,21 +259,98 @@ func (c *Consumer) ConsumeAvatarEvents(
 // handleAvatarUploadedDelivery обрабатывает одно сообщение avatar.uploaded.
 func handleAvatarUploadedDelivery(
 	ctx context.Context,
+	queue string,
 	delivery amqp.Delivery,
 	handler AvatarUploadHandler,
+	workerMetrics *observabilitymetrics.WorkerMetrics,
+	log *slog.Logger,
 ) error {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	if log == nil {
+		log = logger.NewNop()
+	}
+
+	deliveryCtx, span := observabilitytracing.StartSpan(
+		deliveryCtx,
+		"rabbitmq.consume",
+		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarUploaded)...,
+	)
+
+	workerStatus := observabilitymetrics.StatusSuccess
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
+
+	var spanErr error
+	defer func() {
+		observabilitytracing.RecordError(span, spanErr)
+		span.End()
+
+		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
+	}()
+
 	var event domain.AvatarUploadEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
+		log.LogAttrs(
+			deliveryCtx,
+			slog.LevelError,
+			"failed to unmarshal avatar uploaded delivery",
+			observabilitylogging.ErrorAttrs(
+				deliveryCtx,
+				observabilitylogging.ComponentRabbitMQ,
+				"rabbitmq.unmarshal_avatar_uploaded_delivery",
+				err,
+				slog.String("queue", queue),
+				slog.String("routing_key", delivery.RoutingKey),
+				slog.String("message_id", delivery.MessageId),
+				slog.Int("body_size", len(delivery.Body)),
+			)...,
+		)
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
-	if err := handler(ctx, event); err != nil {
+	span.SetAttributes(
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+	)
+
+	if err := handler(deliveryCtx, event); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
+		log.LogAttrs(
+			deliveryCtx,
+			slog.LevelError,
+			"failed to handle avatar uploaded delivery",
+			observabilitylogging.ErrorAttrs(
+				deliveryCtx,
+				observabilitylogging.ComponentWorker,
+				"worker.handle_avatar_uploaded",
+				err,
+				slog.String("queue", queue),
+				slog.String("routing_key", delivery.RoutingKey),
+				slog.String("message_id", delivery.MessageId),
+				slog.String("avatar_id", event.AvatarID),
+				slog.String("user_id", event.UserID),
+				slog.String("s3_key", event.S3Key),
+			)...,
+		)
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
 	if err := delivery.Ack(false); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
 		return fmt.Errorf("ack avatar uploaded event: %w", err)
 	}
 
@@ -243,21 +360,100 @@ func handleAvatarUploadedDelivery(
 // handleAvatarDeletedDelivery обрабатывает одно сообщение avatar.deleted.
 func handleAvatarDeletedDelivery(
 	ctx context.Context,
+	queue string,
 	delivery amqp.Delivery,
 	handler AvatarDeletedHandler,
+	workerMetrics *observabilitymetrics.WorkerMetrics,
+	log *slog.Logger,
 ) error {
+	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+
+	if log == nil {
+		log = logger.NewNop()
+	}
+
+	deliveryCtx, span := observabilitytracing.StartSpan(
+		deliveryCtx,
+		"rabbitmq.consume",
+		rabbitMQConsumeAttrs(delivery, queue, eventTypeAvatarDeleted)...,
+	)
+
+	workerStatus := observabilitymetrics.StatusSuccess
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
+
+	var spanErr error
+	defer func() {
+		observabilitytracing.RecordError(span, spanErr)
+		span.End()
+
+		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
+	}()
+
 	var event domain.AvatarDeletedEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
+		log.LogAttrs(
+			deliveryCtx,
+			slog.LevelError,
+			"failed to unmarshal avatar deleted delivery",
+			observabilitylogging.ErrorAttrs(
+				deliveryCtx,
+				observabilitylogging.ComponentRabbitMQ,
+				"rabbitmq.unmarshal_avatar_deleted_delivery",
+				err,
+				slog.String("queue", queue),
+				slog.String("routing_key", delivery.RoutingKey),
+				slog.String("message_id", delivery.MessageId),
+				slog.Int("body_size", len(delivery.Body)),
+			)...,
+		)
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
-	if err := handler(ctx, event); err != nil {
+	span.SetAttributes(
+		attribute.String("avatar_id", event.AvatarID),
+		attribute.String("user_id", event.UserID),
+		attribute.String("s3_key", event.S3Key),
+		attribute.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+	)
+
+	if err := handler(deliveryCtx, event); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
+		log.LogAttrs(
+			deliveryCtx,
+			slog.LevelError,
+			"failed to handle avatar deleted delivery",
+			observabilitylogging.ErrorAttrs(
+				deliveryCtx,
+				observabilitylogging.ComponentWorker,
+				"worker.handle_avatar_deleted",
+				err,
+				slog.String("queue", queue),
+				slog.String("routing_key", delivery.RoutingKey),
+				slog.String("message_id", delivery.MessageId),
+				slog.String("avatar_id", event.AvatarID),
+				slog.String("user_id", event.UserID),
+				slog.String("s3_key", event.S3Key),
+				slog.Int("thumbnails_count", len(event.ThumbnailS3Keys)),
+			)...,
+		)
+
 		_ = delivery.Nack(false, false)
+
 		return nil
 	}
 
 	if err := delivery.Ack(false); err != nil {
+		spanErr = err
+		workerStatus = observabilitymetrics.StatusError
+
 		return fmt.Errorf("ack avatar deleted event: %w", err)
 	}
 

@@ -16,8 +16,22 @@ services:
       timeout: 3s
       retries: 10
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.19.1
+    container_name: gophprofile-postgres-exporter
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: "postgres:5432/gophprofile?sslmode=disable"
+      DATA_SOURCE_USER: "gophprofile"
+      DATA_SOURCE_PASS: "gophprofile"
+    ports:
+      - "9187:9187"
+
   migrate:
-    image: golang:1.25-alpine
+    image: golang:1.25.10-alpine3.23
     container_name: gophprofile-migrate
     working_dir: /app
     volumes:
@@ -28,17 +42,18 @@ services:
     command: >
       sh -c "
       apk add --no-cache git &&
-      GOBIN=/usr/local/bin go install github.com/pressly/goose/v3/cmd/goose@latest &&
+      GOBIN=/usr/local/bin go install github.com/pressly/goose/v3/cmd/goose@v3.27.1 &&
       goose -dir migrations postgres 'postgres://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable' up
       "
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: gophprofile-minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -52,7 +67,7 @@ services:
       start_period: 5s  
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: gophprofile-minio-init
     depends_on:
       minio:
@@ -68,13 +83,15 @@ services:
       "
 
   rabbitmq:
-    image: rabbitmq:3.12-management
+    image: rabbitmq:3.12.14-management
     container_name: gophprofile-rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
+      - "15692:15692"
     volumes:
       - gophprofile_rabbitmq_data:/var/lib/rabbitmq
+      - ./deploy/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -94,10 +111,16 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started  
     environment:
       GOPHPROFILE_SERVER_ADDRESS: ":8080"
       GOPHPROFILE_LOG_LEVEL: debug
       GOPHPROFILE_MAX_UPLOAD_SIZE_BYTES: "10485760"
+
+      GOPHPROFILE_OTEL_ENABLED: "true"
+      GOPHPROFILE_OTEL_EXPORTER_ENDPOINT: jaeger:4318
+      GOPHPROFILE_SERVICE_NAME: gophprofile-server
 
       GOPHPROFILE_DATABASE_DSN: postgres://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable
 
@@ -130,8 +153,15 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started  
     environment:
       GOPHPROFILE_LOG_LEVEL: debug
+      GOPHPROFILE_WORKER_METRICS_ADDRESS: ":9091"
+
+      GOPHPROFILE_OTEL_ENABLED: "true"
+      GOPHPROFILE_OTEL_EXPORTER_ENDPOINT: jaeger:4318
+      GOPHPROFILE_SERVICE_NAME: gophprofile-worker
 
       GOPHPROFILE_DATABASE_DSN: postgres://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable
 
@@ -148,8 +178,164 @@ services:
       GOPHPROFILE_RABBITMQ_UPLOAD_ROUTING_KEY: avatar.uploaded
       GOPHPROFILE_RABBITMQ_DELETE_QUEUE: avatar.deleted.queue
       GOPHPROFILE_RABBITMQ_DELETE_ROUTING_KEY: avatar.deleted
+    ports:
+      - "9091:9091"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: gophprofile-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"      
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: gophprofile-prometheus
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_started
+      worker:
+        condition: service_started
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/rules:/etc/prometheus/rules:ro
+      - gophprofile_prometheus_data:/prometheus
+    ports:
+      - "9092:9090" 
+
+  alertmanager:
+    image: prom/alertmanager:v0.29.0
+    container_name: gophprofile-alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - gophprofile_alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: gophprofile-loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - gophprofile_loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: gophprofile-promtail
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_started
+    command:
+      - "-config.file=/etc/promtail/promtail-config.yml"
+    volumes:
+      - ./deploy/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  grafana:
+    image: grafana/grafana:12.3.0
+    container_name: gophprofile-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      jaeger:
+        condition: service_started    
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - gophprofile_grafana_data:/var/lib/grafana
+      - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    container_name: gophprofile-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - gophprofile_opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s   
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.19.1
+    container_name: gophprofile-opensearch-dashboards
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+    ports:
+      - "5601:5601"
+
+  fluent-bit:
+    image: fluent/fluent-bit:4.1
+    container_name: gophprofile-fluent-bit
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    volumes:
+      - ./deploy/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./deploy/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - gophprofile_fluentbit_state:/fluent-bit/state
 
 volumes:
   gophprofile_postgres_data:
   gophprofile_minio_data:
   gophprofile_rabbitmq_data:
+  gophprofile_prometheus_data:
+  gophprofile_grafana_data:
+  gophprofile_loki_data:
+  gophprofile_alertmanager_data:
+  gophprofile_opensearch_data:
+  gophprofile_fluentbit_state:

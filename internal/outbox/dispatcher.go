@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
-	"go.uber.org/zap"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 )
 
 const (
@@ -45,13 +48,13 @@ type DispatcherConfig struct {
 type Dispatcher struct {
 	repo      Repository
 	publisher Publisher
-	log       *zap.Logger
+	log       *slog.Logger
 	cfg       DispatcherConfig
 	now       func() time.Time
 }
 
 // NewDispatcher создаёт dispatcher с настройками по умолчанию.
-func NewDispatcher(repo Repository, publisher Publisher, log *zap.Logger) *Dispatcher {
+func NewDispatcher(repo Repository, publisher Publisher, log *slog.Logger) *Dispatcher {
 	return NewDispatcherWithConfig(repo, publisher, log, DispatcherConfig{})
 }
 
@@ -59,11 +62,11 @@ func NewDispatcher(repo Repository, publisher Publisher, log *zap.Logger) *Dispa
 func NewDispatcherWithConfig(
 	repo Repository,
 	publisher Publisher,
-	log *zap.Logger,
+	log *slog.Logger,
 	cfg DispatcherConfig,
 ) *Dispatcher {
 	if log == nil {
-		log = zap.NewNop()
+		log = logger.NewNop()
 	}
 
 	cfg = normalizeDispatcherConfig(cfg)
@@ -126,13 +129,20 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 				)
 			}
 
-			d.log.Warn(
+			d.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"failed to publish outbox event",
-				zap.String("event_id", event.ID),
-				zap.String("event_type", string(event.EventType)),
-				zap.Int("attempts", event.Attempts),
-				zap.Time("next_attempt_at", availableAt),
-				zap.Error(err),
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentOutbox,
+					"outbox.publish_event",
+					err,
+					slog.String("event_id", event.ID),
+					slog.String("event_type", string(event.EventType)),
+					slog.Int("attempts", event.Attempts),
+					slog.Time("next_attempt_at", availableAt),
+				)...,
 			)
 
 			continue
@@ -144,8 +154,8 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 
 		d.log.Info(
 			"outbox event published",
-			zap.String("event_id", event.ID),
-			zap.String("event_type", string(event.EventType)),
+			slog.String("event_id", event.ID),
+			slog.String("event_type", string(event.EventType)),
 		)
 	}
 
@@ -155,7 +165,17 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 // dispatchAndLog выполняет одну итерацию dispatcher-а и логирует ошибку.
 func (d *Dispatcher) dispatchAndLog(ctx context.Context) {
 	if err := d.DispatchOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		d.log.Error("outbox dispatch iteration failed", zap.Error(err))
+		d.log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"outbox dispatch iteration failed",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentOutbox,
+				"outbox.dispatch_iteration",
+				err,
+			)...,
+		)
 	}
 }
 
@@ -163,6 +183,8 @@ func (d *Dispatcher) dispatchAndLog(ctx context.Context) {
 func (d *Dispatcher) publishEvent(ctx context.Context, event domain.OutboxEvent) error {
 	publishCtx, cancel := context.WithTimeout(ctx, d.cfg.PublishTimeout)
 	defer cancel()
+
+	publishCtx = observabilitytracing.ExtractTextMap(publishCtx, event.Headers)
 
 	switch event.EventType {
 	case domain.OutboxEventTypeAvatarUploaded:

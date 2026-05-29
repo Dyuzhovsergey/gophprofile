@@ -58,6 +58,7 @@ type OutboxEvent struct {
 	ID          string
 	EventType   OutboxEventType
 	Payload     json.RawMessage
+	Headers     map[string]string
 	Status      OutboxEventStatus
 	Attempts    int
 	LastError   string

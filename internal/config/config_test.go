@@ -7,6 +7,9 @@ func TestLoadServer_Defaults(t *testing.T) {
 	t.Setenv(envLogLevel, "")
 	t.Setenv(envDatabaseDSN, "")
 	t.Setenv(envMaxUploadSizeBytes, "")
+	t.Setenv(envOTelEnabled, "")
+	t.Setenv(envOTelExporterEndpoint, "")
+	t.Setenv(envServiceName, "")
 
 	cfg := LoadServer()
 
@@ -69,6 +72,26 @@ func TestLoadServer_Defaults(t *testing.T) {
 			defaultServerIdleTimeout,
 		)
 	}
+
+	if cfg.Tracing.Enabled != defaultOTelEnabled {
+		t.Fatalf("unexpected tracing enabled: got %v, want %v", cfg.Tracing.Enabled, defaultOTelEnabled)
+	}
+
+	if cfg.Tracing.ExporterEndpoint != defaultOTelExporterEndpoint {
+		t.Fatalf(
+			"unexpected tracing exporter endpoint: got %q, want %q",
+			cfg.Tracing.ExporterEndpoint,
+			defaultOTelExporterEndpoint,
+		)
+	}
+
+	if cfg.Tracing.ServiceName != defaultServerServiceName {
+		t.Fatalf(
+			"unexpected tracing service name: got %q, want %q",
+			cfg.Tracing.ServiceName,
+			defaultServerServiceName,
+		)
+	}
 }
 
 func TestLoadServer_FromEnv(t *testing.T) {
@@ -96,8 +119,21 @@ func TestLoadServer_FromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadTracing_InvalidEnabledUsesDefault(t *testing.T) {
+	t.Setenv(envOTelEnabled, "invalid")
+
+	cfg := LoadTracing(defaultServerServiceName)
+
+	if cfg.Enabled != defaultOTelEnabled {
+		t.Fatalf("unexpected tracing enabled: got %v, want %v", cfg.Enabled, defaultOTelEnabled)
+	}
+}
+
 func TestLoadServer_InvalidMaxUploadSizeUsesDefault(t *testing.T) {
 	t.Setenv(envMaxUploadSizeBytes, "invalid")
+	t.Setenv(envOTelEnabled, "true")
+	t.Setenv(envOTelExporterEndpoint, "localhost:14318")
+	t.Setenv(envServiceName, "custom-gophprofile-server")
 
 	cfg := LoadServer()
 
@@ -107,6 +143,18 @@ func TestLoadServer_InvalidMaxUploadSizeUsesDefault(t *testing.T) {
 			cfg.MaxUploadSizeBytes,
 			defaultMaxUploadSizeBytes,
 		)
+	}
+
+	if !cfg.Tracing.Enabled {
+		t.Fatal("expected tracing to be enabled")
+	}
+
+	if cfg.Tracing.ExporterEndpoint != "localhost:14318" {
+		t.Fatalf("unexpected tracing exporter endpoint: got %q", cfg.Tracing.ExporterEndpoint)
+	}
+
+	if cfg.Tracing.ServiceName != "custom-gophprofile-server" {
+		t.Fatalf("unexpected tracing service name: got %q", cfg.Tracing.ServiceName)
 	}
 }
 
@@ -193,6 +241,10 @@ func TestLoadRabbitMQ_Defaults(t *testing.T) {
 func TestLoadWorker_FromEnv(t *testing.T) {
 	t.Setenv(envLogLevel, "debug")
 	t.Setenv(envDatabaseDSN, "postgres://user:pass@localhost:5432/db?sslmode=disable")
+	t.Setenv(envOTelEnabled, "true")
+	t.Setenv(envOTelExporterEndpoint, "localhost:24318")
+	t.Setenv(envServiceName, "custom-gophprofile-worker")
+	t.Setenv(envWorkerMetricsAddress, ":19091")
 
 	cfg := LoadWorker()
 
@@ -202,5 +254,21 @@ func TestLoadWorker_FromEnv(t *testing.T) {
 
 	if cfg.DatabaseDSN != "postgres://user:pass@localhost:5432/db?sslmode=disable" {
 		t.Fatalf("unexpected database dsn: got %q", cfg.DatabaseDSN)
+	}
+
+	if !cfg.Tracing.Enabled {
+		t.Fatal("expected tracing to be enabled")
+	}
+
+	if cfg.Tracing.ExporterEndpoint != "localhost:24318" {
+		t.Fatalf("unexpected tracing exporter endpoint: got %q", cfg.Tracing.ExporterEndpoint)
+	}
+
+	if cfg.Tracing.ServiceName != "custom-gophprofile-worker" {
+		t.Fatalf("unexpected tracing service name: got %q", cfg.Tracing.ServiceName)
+	}
+
+	if cfg.MetricsAddress != ":19091" {
+		t.Fatalf("unexpected worker metrics address: got %q", cfg.MetricsAddress)
 	}
 }

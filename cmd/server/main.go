@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,23 +14,29 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
+	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
-	"go.uber.org/zap"
 )
 
 func main() {
 	cfg := config.LoadServer()
 
-	log, err := logger.Init(cfg.LogLevel)
+	log, err := logger.Init(
+		cfg.LogLevel,
+		observabilitylogging.ServiceNameServer,
+		observabilitylogging.DefaultEnvironment,
+	)
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, "init logger:", err)
+		os.Exit(1)
 	}
-	defer func() {
-		_ = log.Sync()
-	}()
+
+	appMetrics := observabilitymetrics.New()
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -40,9 +48,49 @@ func main() {
 
 	db, err := postgres.NewPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
-		log.Fatal("failed to connect to postgres", zap.Error(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to connect to postgres",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentPostgres,
+				"postgres.connect",
+				err,
+			)...,
+		)
+		os.Exit(1)
 	}
 	defer db.Close()
+
+	tracingShutdown, err := observabilitytracing.InitProvider(
+		ctx,
+		observabilitytracing.NewConfig(
+			cfg.Tracing.ServiceName,
+			cfg.Tracing.ExporterEndpoint,
+			cfg.Tracing.Enabled,
+		),
+	)
+	if err != nil {
+		log.Error("failed to initialize tracing", logger.Err(err))
+		os.Exit(1)
+	}
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GracefulShutdownTimeout)
+		defer cancel()
+
+		if err := tracingShutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown tracing", logger.Err(err))
+		}
+	}()
+
+	log.Info(
+		"tracing initialized",
+		slog.Bool("enabled", cfg.Tracing.Enabled),
+		slog.String("service_name", cfg.Tracing.ServiceName),
+		slog.String("exporter_endpoint", cfg.Tracing.ExporterEndpoint),
+	)
 
 	log.Info("connected to postgres")
 
@@ -51,16 +99,38 @@ func main() {
 
 	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
-		log.Fatal("failed to create s3 storage client", zap.Error(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create s3 storage client",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentS3,
+				"s3.create_client",
+				err,
+			)...,
+		)
+		os.Exit(1)
 	}
 
 	avatarEventPublisher, err := rabbitmq.NewPublisher(cfg.RabbitMQ)
 	if err != nil {
-		log.Fatal("failed to create rabbitmq publisher", zap.Error(err))
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"failed to create rabbitmq publisher",
+			observabilitylogging.ErrorAttrs(
+				ctx,
+				observabilitylogging.ComponentRabbitMQ,
+				"rabbitmq.create_publisher",
+				err,
+			)...,
+		)
+		os.Exit(1)
 	}
 	defer func() {
 		if err := avatarEventPublisher.Close(); err != nil {
-			log.Error("failed to close rabbitmq publisher", zap.Error(err))
+			log.Error("failed to close rabbitmq publisher", logger.Err(err))
 		}
 	}()
 
@@ -80,11 +150,14 @@ func main() {
 		avatarRepository,
 		avatarStorage,
 		cfg.MaxUploadSizeBytes,
+		log,
 	)
+	avatarService.WithAvatarMetrics(appMetrics.Avatar)
 
 	avatarHandler := handlers.NewAvatarHandler(
 		avatarService,
 		cfg.MaxUploadSizeBytes,
+		log,
 	)
 
 	webHandler := handlers.NewWebHandler(
@@ -99,7 +172,14 @@ func main() {
 		avatarStorage,
 		avatarEventPublisher,
 	)
-	router := handlers.NewRouter(log, healthHandler, avatarHandler, webHandler)
+
+	router := handlers.NewRouter(
+		log,
+		healthHandler,
+		avatarHandler,
+		webHandler,
+		appMetrics,
+	)
 
 	server := &http.Server{
 		Addr:              cfg.Address,
@@ -112,8 +192,8 @@ func main() {
 
 	log.Info(
 		"GophProfile server starting",
-		zap.String("address", cfg.Address),
-		zap.String("log_level", cfg.LogLevel),
+		slog.String("address", cfg.Address),
+		slog.String("log_level", cfg.LogLevel),
 	)
 
 	serverErr := make(chan error, 1)
@@ -133,7 +213,18 @@ func main() {
 
 	case err := <-serverErr:
 		if err != nil {
-			log.Fatal("GophProfile server stopped with error", zap.Error(err))
+			log.LogAttrs(
+				ctx,
+				slog.LevelError,
+				"GophProfile server stopped with error",
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentApp,
+					"server.listen",
+					err,
+				)...,
+			)
+			os.Exit(1)
 		}
 
 		log.Info("GophProfile server stopped")
@@ -144,11 +235,13 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Fatal("failed to shutdown GophProfile server gracefully", zap.Error(err))
+		log.Error("failed to shutdown GophProfile server gracefully", logger.Err(err))
+		os.Exit(1)
 	}
 
 	if err := <-serverErr; err != nil {
-		log.Fatal("GophProfile server stopped with error", zap.Error(err))
+		log.Error("GophProfile server stopped with error", logger.Err(err))
+		os.Exit(1)
 	}
 
 	log.Info("GophProfile server stopped gracefully")

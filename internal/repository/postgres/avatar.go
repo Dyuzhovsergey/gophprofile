@@ -7,9 +7,11 @@ import (
 	"fmt"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const avatarColumns = `
@@ -29,6 +31,26 @@ const avatarColumns = `
 	deleted_at
 `
 
+const (
+	postgresSystem = "postgresql"
+	avatarsTable   = "avatars"
+)
+
+// postgresAvatarAttrs возвращает общие атрибуты для PostgreSQL spans.
+func postgresAvatarAttrs(operation string, attrs ...attribute.KeyValue) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attrs)+3)
+
+	result = append(result,
+		attribute.String("db.system", postgresSystem),
+		attribute.String("db.operation", operation),
+		attribute.String("db.table", avatarsTable),
+	)
+
+	result = append(result, attrs...)
+
+	return result
+}
+
 // AvatarRepository работает с таблицей avatars в PostgreSQL.
 type AvatarRepository struct {
 	db *pgxpool.Pool
@@ -42,16 +64,55 @@ func NewAvatarRepository(db *pgxpool.Pool) *AvatarRepository {
 }
 
 // Create создаёт запись аватарки и возвращает её с данными, заполненными базой.
-// Create создаёт запись аватарки и возвращает её с данными, заполненными базой.
-func (r *AvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (domain.Avatar, error) {
-	return createAvatar(ctx, r.db, avatar)
+func (r *AvatarRepository) Create(ctx context.Context, avatar domain.Avatar) (createdAvatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.create",
+		postgresAvatarAttrs(
+			"insert",
+			attribute.String("user_id", avatar.UserID),
+			attribute.String("file_name", avatar.FileName),
+			attribute.String("mime_type", avatar.MIMEType),
+			attribute.Int64("file_size", avatar.SizeBytes),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	createdAvatar, err = createAvatar(ctx, r.db, avatar)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	span.SetAttributes(attribute.String("avatar_id", createdAvatar.ID))
+
+	return createdAvatar, nil
 }
 
 // CreateWithUploadEvent создаёт аватарку и outbox-событие avatar.uploaded в одной транзакции.
 func (r *AvatarRepository) CreateWithUploadEvent(
 	ctx context.Context,
 	avatar domain.Avatar,
-) (domain.Avatar, error) {
+) (createdAvatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.create_with_upload_event",
+		postgresAvatarAttrs(
+			"transaction",
+			attribute.String("user_id", avatar.UserID),
+			attribute.String("file_name", avatar.FileName),
+			attribute.String("mime_type", avatar.MIMEType),
+			attribute.Int64("file_size", avatar.SizeBytes),
+			attribute.String("outbox_event_type", string(domain.OutboxEventTypeAvatarUploaded)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return domain.Avatar{}, fmt.Errorf("begin create avatar transaction: %w", err)
@@ -60,10 +121,12 @@ func (r *AvatarRepository) CreateWithUploadEvent(
 		_ = tx.Rollback(ctx)
 	}()
 
-	createdAvatar, err := createAvatar(ctx, tx, avatar)
+	createdAvatar, err = createAvatar(ctx, tx, avatar)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(attribute.String("avatar_id", createdAvatar.ID))
 
 	payload, err := json.Marshal(domain.AvatarUploadEvent{
 		AvatarID: createdAvatar.ID,
@@ -77,6 +140,7 @@ func (r *AvatarRepository) CreateWithUploadEvent(
 	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
 		EventType: domain.OutboxEventTypeAvatarUploaded,
 		Payload:   payload,
+		Headers:   observabilitytracing.InjectTextMap(ctx),
 	}); err != nil {
 		return domain.Avatar{}, fmt.Errorf("create avatar uploaded outbox event: %w", err)
 	}
@@ -162,23 +226,54 @@ func createAvatar(
 }
 
 // GetByID возвращает аватарку по id, включая мягко удалённые записи.
-func (r *AvatarRepository) GetByID(ctx context.Context, id string) (domain.Avatar, error) {
+func (r *AvatarRepository) GetByID(ctx context.Context, id string) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.get_by_id",
+		postgresAvatarAttrs(
+			"select",
+			attribute.String("avatar_id", id),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	query := `
 		SELECT ` + avatarColumns + `
 		FROM avatars
 		WHERE id = $1
 	`
 
-	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, id))
+	avatar, err = scanAvatar(r.db.QueryRow(ctx, query, id))
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
+
+	span.SetAttributes(
+		attribute.String("user_id", avatar.UserID),
+		attribute.String("processing_status", string(avatar.ProcessingStatus)),
+	)
 
 	return avatar, nil
 }
 
 // GetLatestByUserID возвращает последнюю неудалённую аватарку пользователя.
-func (r *AvatarRepository) GetLatestByUserID(ctx context.Context, userID string) (domain.Avatar, error) {
+func (r *AvatarRepository) GetLatestByUserID(ctx context.Context, userID string) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.get_latest_by_user_id",
+		postgresAvatarAttrs(
+			"select",
+			attribute.String("user_id", userID),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	query := `
 		SELECT ` + avatarColumns + `
 		FROM avatars
@@ -188,16 +283,34 @@ func (r *AvatarRepository) GetLatestByUserID(ctx context.Context, userID string)
 		LIMIT 1
 	`
 
-	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, userID))
+	avatar, err = scanAvatar(r.db.QueryRow(ctx, query, userID))
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
+
+	span.SetAttributes(
+		attribute.String("avatar_id", avatar.ID),
+		attribute.String("processing_status", string(avatar.ProcessingStatus)),
+	)
 
 	return avatar, nil
 }
 
 // ListByUserID возвращает список неудалённых аватарок пользователя.
-func (r *AvatarRepository) ListByUserID(ctx context.Context, userID string) ([]domain.Avatar, error) {
+func (r *AvatarRepository) ListByUserID(ctx context.Context, userID string) (avatars []domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.list_by_user_id",
+		postgresAvatarAttrs(
+			"select",
+			attribute.String("user_id", userID),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	query := `
 		SELECT ` + avatarColumns + `
 		FROM avatars
@@ -212,7 +325,7 @@ func (r *AvatarRepository) ListByUserID(ctx context.Context, userID string) ([]d
 	}
 	defer rows.Close()
 
-	avatars := make([]domain.Avatar, 0)
+	avatars = make([]domain.Avatar, 0)
 
 	for rows.Next() {
 		avatar, err := scanAvatar(rows)
@@ -227,19 +340,55 @@ func (r *AvatarRepository) ListByUserID(ctx context.Context, userID string) ([]d
 		return nil, fmt.Errorf("iterate avatars: %w", err)
 	}
 
+	span.SetAttributes(attribute.Int("avatars_count", len(avatars)))
+
 	return avatars, nil
 }
 
 // SoftDelete мягко удаляет аватарку и возвращает удалённую запись.
-// Физическое удаление файлов из S3 позже будет делать worker.
-// SoftDelete мягко удаляет аватарку и возвращает удалённую запись.
-// Физическое удаление файлов из S3 позже будет делать worker.
-func (r *AvatarRepository) SoftDelete(ctx context.Context, id string) (domain.Avatar, error) {
-	return softDeleteAvatar(ctx, r.db, id)
+func (r *AvatarRepository) SoftDelete(ctx context.Context, id string) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.soft_delete",
+		postgresAvatarAttrs(
+			"update",
+			attribute.String("avatar_id", id),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
+	avatar, err = softDeleteAvatar(ctx, r.db, id)
+	if err != nil {
+		return domain.Avatar{}, err
+	}
+
+	span.SetAttributes(
+		attribute.String("user_id", avatar.UserID),
+		attribute.Bool("deleted", true),
+	)
+
+	return avatar, nil
 }
 
 // SoftDeleteWithDeleteEvent мягко удаляет аватарку и создаёт outbox-событие avatar.deleted в одной транзакции.
-func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id string) (domain.Avatar, error) {
+func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id string) (deletedAvatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.soft_delete_with_delete_event",
+		postgresAvatarAttrs(
+			"transaction",
+			attribute.String("avatar_id", id),
+			attribute.String("outbox_event_type", string(domain.OutboxEventTypeAvatarDeleted)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return domain.Avatar{}, fmt.Errorf("begin soft delete avatar transaction: %w", err)
@@ -248,10 +397,15 @@ func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id str
 		_ = tx.Rollback(ctx)
 	}()
 
-	deletedAvatar, err := softDeleteAvatar(ctx, tx, id)
+	deletedAvatar, err = softDeleteAvatar(ctx, tx, id)
 	if err != nil {
 		return domain.Avatar{}, err
 	}
+
+	span.SetAttributes(
+		attribute.String("user_id", deletedAvatar.UserID),
+		attribute.Bool("deleted", true),
+	)
 
 	payload, err := json.Marshal(domain.AvatarDeletedEvent{
 		AvatarID:        deletedAvatar.ID,
@@ -266,6 +420,7 @@ func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id str
 	if _, err := createOutboxEvent(ctx, tx, domain.OutboxEvent{
 		EventType: domain.OutboxEventTypeAvatarDeleted,
 		Payload:   payload,
+		Headers:   observabilitytracing.InjectTextMap(ctx),
 	}); err != nil {
 		return domain.Avatar{}, fmt.Errorf("create avatar deleted outbox event: %w", err)
 	}
@@ -278,7 +433,6 @@ func (r *AvatarRepository) SoftDeleteWithDeleteEvent(ctx context.Context, id str
 }
 
 // softDeleteAvatar мягко удаляет аватарку через переданный executor.
-// Executor может быть обычным pool или транзакцией.
 func softDeleteAvatar(
 	ctx context.Context,
 	db queryRower,
@@ -306,7 +460,21 @@ func (r *AvatarRepository) UpdateProcessingStatus(
 	ctx context.Context,
 	id string,
 	status domain.ProcessingStatus,
-) (domain.Avatar, error) {
+) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.update_processing_status",
+		postgresAvatarAttrs(
+			"update",
+			attribute.String("avatar_id", id),
+			attribute.String("processing_status", string(status)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	if !status.IsValid() {
 		return domain.Avatar{}, domain.ErrInvalidStatus
 	}
@@ -320,10 +488,12 @@ func (r *AvatarRepository) UpdateProcessingStatus(
 			AND deleted_at IS NULL
 		RETURNING ` + avatarColumns
 
-	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, id, string(status)))
+	avatar, err = scanAvatar(r.db.QueryRow(ctx, query, id, string(status)))
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
+
+	span.SetAttributes(attribute.String("user_id", avatar.UserID))
 
 	return avatar, nil
 }
@@ -333,7 +503,21 @@ func (r *AvatarRepository) UpdateThumbnails(
 	ctx context.Context,
 	id string,
 	thumbnails map[domain.ThumbnailSize]string,
-) (domain.Avatar, error) {
+) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.update_thumbnails",
+		postgresAvatarAttrs(
+			"update",
+			attribute.String("avatar_id", id),
+			attribute.Int("thumbnails_count", len(thumbnails)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	thumbnailS3Keys, err := encodeThumbnailS3Keys(thumbnails)
 	if err != nil {
 		return domain.Avatar{}, fmt.Errorf("encode thumbnail s3 keys: %w", err)
@@ -348,10 +532,12 @@ func (r *AvatarRepository) UpdateThumbnails(
 			AND deleted_at IS NULL
 		RETURNING ` + avatarColumns
 
-	avatar, err := scanAvatar(r.db.QueryRow(ctx, query, id, thumbnailS3Keys))
+	avatar, err = scanAvatar(r.db.QueryRow(ctx, query, id, thumbnailS3Keys))
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
+
+	span.SetAttributes(attribute.String("user_id", avatar.UserID))
 
 	return avatar, nil
 }
@@ -364,7 +550,24 @@ func (r *AvatarRepository) UpdateProcessingResult(
 	height int,
 	thumbnails map[domain.ThumbnailSize]string,
 	status domain.ProcessingStatus,
-) (domain.Avatar, error) {
+) (avatar domain.Avatar, err error) {
+	ctx, span := observabilitytracing.StartSpan(
+		ctx,
+		"postgres.avatar.update_processing_result",
+		postgresAvatarAttrs(
+			"update",
+			attribute.String("avatar_id", id),
+			attribute.Int("width", width),
+			attribute.Int("height", height),
+			attribute.Int("thumbnails_count", len(thumbnails)),
+			attribute.String("processing_status", string(status)),
+		)...,
+	)
+	defer func() {
+		observabilitytracing.RecordError(span, err)
+		span.End()
+	}()
+
 	if !status.IsValid() {
 		return domain.Avatar{}, domain.ErrInvalidStatus
 	}
@@ -386,7 +589,7 @@ func (r *AvatarRepository) UpdateProcessingResult(
 			AND deleted_at IS NULL
 		RETURNING ` + avatarColumns
 
-	avatar, err := scanAvatar(
+	avatar, err = scanAvatar(
 		r.db.QueryRow(
 			ctx,
 			query,
@@ -400,6 +603,8 @@ func (r *AvatarRepository) UpdateProcessingResult(
 	if err != nil {
 		return domain.Avatar{}, mapAvatarScanError(err)
 	}
+
+	span.SetAttributes(attribute.String("user_id", avatar.UserID))
 
 	return avatar, nil
 }

@@ -1,0 +1,48 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail-positions.yml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: gophprofile-docker-logs
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: name
+            values:
+              - gophprofile-server
+              - gophprofile-worker
+
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: "compose_service"
+
+      - target_label: "job"
+        replacement: "gophprofile"
+
+    pipeline_stages:
+      - docker: {}
+
+      - json:
+          expressions:
+            level: level
+            service: service
+            environment: environment
+            trace_id: trace_id
+            span_id: span_id
+            msg: msg
+
+      - labels:
+          level:
+          service:
+          environment:

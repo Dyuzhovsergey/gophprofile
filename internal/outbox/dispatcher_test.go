@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
-	"go.uber.org/zap"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 )
 
 type fakeRepository struct {
@@ -112,7 +112,7 @@ func TestDispatcher_DispatchOnce_PublishesUploadedEvent(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(
 		repo,
 		publisher,
-		zap.NewNop(),
+		logger.NewNop(),
 		DispatcherConfig{
 			BatchSize:      10,
 			RetryBaseDelay: time.Second,
@@ -173,7 +173,7 @@ func TestDispatcher_DispatchOnce_PublishesDeletedEvent(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(
 		repo,
 		publisher,
-		zap.NewNop(),
+		logger.NewNop(),
 		DispatcherConfig{
 			BatchSize:      10,
 			RetryBaseDelay: time.Second,
@@ -226,7 +226,7 @@ func TestDispatcher_DispatchOnce_PublishErrorMarksFailed(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(
 		repo,
 		publisher,
-		zap.NewNop(),
+		logger.NewNop(),
 		DispatcherConfig{
 			BatchSize:      10,
 			RetryBaseDelay: time.Second,
@@ -272,7 +272,7 @@ func TestDispatcher_DispatchOnce_ListError(t *testing.T) {
 	dispatcher := NewDispatcherWithConfig(
 		repo,
 		&fakePublisher{},
-		zap.NewNop(),
+		logger.NewNop(),
 		DispatcherConfig{
 			BatchSize:      10,
 			RetryBaseDelay: time.Second,

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
-	"go.uber.org/zap"
 )
 
 type fakeAvatarRepository struct {
@@ -173,7 +173,7 @@ func TestAvatarProcessor_HandleAvatarUploaded_Success(t *testing.T) {
 		},
 	}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
 		AvatarID: "avatar-id",
@@ -255,7 +255,7 @@ func TestAvatarProcessor_HandleAvatarUploaded_DownloadErrorMarksFailed(t *testin
 
 	imageProcessor := &fakeImageProcessor{}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
 		AvatarID: "avatar-id",
@@ -279,7 +279,7 @@ func TestAvatarProcessor_HandleAvatarUploaded_EmptyAvatarID(t *testing.T) {
 	storage := &fakeAvatarStorage{}
 	imageProcessor := &fakeImageProcessor{}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{})
 	if !errors.Is(err, domain.ErrAvatarNotFound) {
@@ -320,7 +320,7 @@ func TestAvatarProcessor_HandleAvatarUploaded_AlreadyCompletedSkipsProcessing(t 
 		},
 	}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
 		AvatarID: "avatar-id",
@@ -361,7 +361,7 @@ func TestAvatarProcessor_HandleAvatarDeleted_Success(t *testing.T) {
 	storage := &fakeAvatarStorage{}
 	imageProcessor := &fakeImageProcessor{}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarDeleted(context.Background(), domain.AvatarDeletedEvent{
 		AvatarID: "avatar-id",
@@ -416,7 +416,7 @@ func TestAvatarProcessor_HandleAvatarUploaded_DeletedAvatarSkipsProcessing(t *te
 	storage := &fakeAvatarStorage{}
 	imageProcessor := &fakeImageProcessor{}
 
-	processor := NewAvatarProcessor(zap.NewNop(), repo, storage, imageProcessor)
+	processor := NewAvatarProcessor(logger.NewNop(), repo, storage, imageProcessor)
 
 	err := processor.HandleAvatarUploaded(context.Background(), domain.AvatarUploadEvent{
 		AvatarID: "avatar-id",

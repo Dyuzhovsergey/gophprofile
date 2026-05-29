@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"sort"
@@ -13,7 +14,9 @@ import (
 	"time"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
 )
@@ -34,17 +37,28 @@ type AvatarManager interface {
 type AvatarHandler struct {
 	avatarService      AvatarManager
 	maxUploadSizeBytes int64
+	log                *slog.Logger
 }
 
 // NewAvatarHandler создаёт обработчик аватарок.
-func NewAvatarHandler(avatarService AvatarManager, maxUploadSizeBytes int64) *AvatarHandler {
+func NewAvatarHandler(
+	avatarService AvatarManager,
+	maxUploadSizeBytes int64,
+	loggers ...*slog.Logger,
+) *AvatarHandler {
 	if maxUploadSizeBytes <= 0 {
 		maxUploadSizeBytes = services.DefaultMaxUploadSizeBytes
+	}
+
+	log := logger.NewNop()
+	if len(loggers) > 0 && loggers[0] != nil {
+		log = loggers[0]
 	}
 
 	return &AvatarHandler{
 		avatarService:      avatarService,
 		maxUploadSizeBytes: maxUploadSizeBytes,
+		log:                log,
 	}
 }
 
@@ -123,7 +137,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		Body:      file,
 	})
 	if err != nil {
-		h.handleUploadError(w, err)
+		h.handleUploadError(w, r, err, userID)
 		return
 	}
 
@@ -155,7 +169,14 @@ func (h *AvatarHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 			domain.ThumbnailSize(sizeParam),
 		)
 		if err != nil {
-			h.handleGetByIDError(w, err)
+			h.handleGetByIDError(
+				w,
+				r,
+				err,
+				"http.get_avatar_thumbnail",
+				slog.String("avatar_id", avatarID),
+				slog.String("thumbnail_size", sizeParam),
+			)
 			return
 		}
 
@@ -165,7 +186,13 @@ func (h *AvatarHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.avatarService.GetAvatarByID(r.Context(), avatarID)
 	if err != nil {
-		h.handleGetByIDError(w, err)
+		h.handleGetByIDError(
+			w,
+			r,
+			err,
+			"http.get_avatar",
+			slog.String("avatar_id", avatarID),
+		)
 		return
 	}
 
@@ -185,7 +212,13 @@ func (h *AvatarHandler) GetCurrentByUserID(w http.ResponseWriter, r *http.Reques
 
 	result, err := h.avatarService.GetCurrentAvatarByUserID(r.Context(), userID)
 	if err != nil {
-		h.handleGetByIDError(w, err)
+		h.handleGetByIDError(
+			w,
+			r,
+			err,
+			"http.get_current_avatar_by_user_id",
+			slog.String("user_id", userID),
+		)
 		return
 	}
 
@@ -205,7 +238,13 @@ func (h *AvatarHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 
 	avatar, err := h.avatarService.GetAvatarMetadata(r.Context(), avatarID)
 	if err != nil {
-		h.handleGetByIDError(w, err)
+		h.handleGetByIDError(
+			w,
+			r,
+			err,
+			"http.get_avatar_metadata",
+			slog.String("avatar_id", avatarID),
+		)
 		return
 	}
 
@@ -225,10 +264,9 @@ func (h *AvatarHandler) ListByUserID(w http.ResponseWriter, r *http.Request) {
 
 	avatars, err := h.avatarService.ListAvatarsByUserID(r.Context(), userID)
 	if err != nil {
-		h.handleListByUserIDError(w, err)
+		h.handleListByUserIDError(w, r, err, userID)
 		return
 	}
-
 	writeJSON(w, http.StatusOK, UserAvatarsResponse{
 		UserID:  userID,
 		Avatars: buildAvatarMetadataResponses(avatars),
@@ -257,7 +295,14 @@ func (h *AvatarHandler) DeleteByID(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.avatarService.DeleteAvatarByID(r.Context(), avatarID, userID)
 	if err != nil {
-		h.handleDeleteByIDError(w, err)
+		h.handleDeleteByIDError(
+			w,
+			r,
+			err,
+			"http.delete_avatar",
+			slog.String("avatar_id", avatarID),
+			slog.String("user_id", userID),
+		)
 		return
 	}
 
@@ -286,7 +331,14 @@ func (h *AvatarHandler) DeleteCurrentByUserID(w http.ResponseWriter, r *http.Req
 
 	_, err := h.avatarService.DeleteCurrentAvatarByUserID(r.Context(), userID, actorUserID)
 	if err != nil {
-		h.handleDeleteByIDError(w, err)
+		h.handleDeleteByIDError(
+			w,
+			r,
+			err,
+			"http.delete_current_user_avatar",
+			slog.String("user_id", userID),
+			slog.String("actor_user_id", actorUserID),
+		)
 		return
 	}
 
@@ -294,7 +346,13 @@ func (h *AvatarHandler) DeleteCurrentByUserID(w http.ResponseWriter, r *http.Req
 }
 
 // handleDeleteByIDError преобразует ошибки удаления аватарки в HTTP-ответы.
-func (h *AvatarHandler) handleDeleteByIDError(w http.ResponseWriter, err error) {
+func (h *AvatarHandler) handleDeleteByIDError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+	operation string,
+	attrs ...slog.Attr,
+) {
 	switch {
 	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
 		writeJSONError(w, http.StatusNotFound, ErrorResponse{
@@ -311,6 +369,14 @@ func (h *AvatarHandler) handleDeleteByIDError(w http.ResponseWriter, err error) 
 			Details: "Required header: X-User-ID",
 		})
 	default:
+		h.logUnexpectedError(
+			r,
+			"failed to delete avatar",
+			operation,
+			err,
+			attrs...,
+		)
+
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Internal server error",
 		})
@@ -318,7 +384,12 @@ func (h *AvatarHandler) handleDeleteByIDError(w http.ResponseWriter, err error) 
 }
 
 // handleListByUserIDError преобразует ошибки получения списка аватарок в HTTP-ответы.
-func (h *AvatarHandler) handleListByUserIDError(w http.ResponseWriter, err error) {
+func (h *AvatarHandler) handleListByUserIDError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+	userID string,
+) {
 	switch {
 	case errors.Is(err, domain.ErrMissingUserID):
 		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
@@ -326,6 +397,14 @@ func (h *AvatarHandler) handleListByUserIDError(w http.ResponseWriter, err error
 			Details: "user_id is required",
 		})
 	default:
+		h.logUnexpectedError(
+			r,
+			"failed to list user avatars",
+			"http.list_user_avatars",
+			err,
+			slog.String("user_id", userID),
+		)
+
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Internal server error",
 		})
@@ -347,7 +426,13 @@ func buildAvatarMetadataResponses(avatars []domain.Avatar) []AvatarMetadataRespo
 }
 
 // handleGetByIDError преобразует ошибки получения аватарки в HTTP-ответы.
-func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
+func (h *AvatarHandler) handleGetByIDError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+	operation string,
+	attrs ...slog.Attr,
+) {
 	switch {
 	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
 		writeJSONError(w, http.StatusNotFound, ErrorResponse{
@@ -363,6 +448,14 @@ func (h *AvatarHandler) handleGetByIDError(w http.ResponseWriter, err error) {
 			Details: "Supported sizes: 100x100, 300x300",
 		})
 	default:
+		h.logUnexpectedError(
+			r,
+			"failed to get avatar",
+			operation,
+			err,
+			attrs...,
+		)
+
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Internal server error",
 		})
@@ -387,7 +480,12 @@ func (h *AvatarHandler) handleMultipartError(w http.ResponseWriter, err error) {
 }
 
 // handleUploadError преобразует доменные ошибки загрузки в HTTP-ответы.
-func (h *AvatarHandler) handleUploadError(w http.ResponseWriter, err error) {
+func (h *AvatarHandler) handleUploadError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+	userID string,
+) {
 	switch {
 	case errors.Is(err, domain.ErrMissingUserID):
 		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
@@ -405,10 +503,40 @@ func (h *AvatarHandler) handleUploadError(w http.ResponseWriter, err error) {
 			Details: "Supported formats: jpeg, png, webp",
 		})
 	default:
+		h.logUnexpectedError(
+			r,
+			"failed to upload avatar",
+			"http.upload_avatar",
+			err,
+			slog.String("user_id", userID),
+		)
+
 		writeJSONError(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "Internal server error",
 		})
 	}
+}
+
+// logUnexpectedError пишет системную ошибку HTTP handler-а в едином observability-формате.
+func (h *AvatarHandler) logUnexpectedError(
+	r *http.Request,
+	message string,
+	operation string,
+	err error,
+	attrs ...slog.Attr,
+) {
+	h.log.LogAttrs(
+		r.Context(),
+		slog.LevelError,
+		message,
+		observabilitylogging.ErrorAttrs(
+			r.Context(),
+			observabilitylogging.ComponentHTTP,
+			operation,
+			err,
+			attrs...,
+		)...,
+	)
 }
 
 // buildAvatarMetadataResponse преобразует domain.Avatar в HTTP response metadata.

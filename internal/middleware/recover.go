@@ -1,22 +1,35 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 
-	"go.uber.org/zap"
+	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 )
 
 // Recover перехватывает panic внутри HTTP handler-ов и возвращает 500.
-func Recover(log *zap.Logger) func(http.Handler) http.Handler {
+func Recover(log *slog.Logger) func(http.Handler) http.Handler {
+	if log == nil {
+		log = logger.NewNop()
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					log.Error(
+					log.LogAttrs(
+						r.Context(),
+						slog.LevelError,
 						"panic recovered",
-						zap.Any("panic", recovered),
-						zap.String("method", r.Method),
-						zap.String("path", r.URL.Path),
+						observabilitylogging.AppendTraceAttrs(
+							r.Context(),
+							slog.String("component", observabilitylogging.ComponentHTTP),
+							slog.String("operation", "http.recover"),
+							slog.Any("panic", recovered),
+							slog.String("method", r.Method),
+							slog.String("path", r.URL.Path),
+						)...,
 					)
 
 					http.Error(w, "internal server error", http.StatusInternalServerError)

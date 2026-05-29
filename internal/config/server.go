@@ -25,7 +25,6 @@ const (
 )
 
 // ServerConfig хранит настройки HTTP-сервера.
-// ServerConfig хранит настройки HTTP-сервера.
 type ServerConfig struct {
 	Address            string
 	LogLevel           string
@@ -40,6 +39,7 @@ type ServerConfig struct {
 
 	S3       S3Config
 	RabbitMQ RabbitMQConfig
+	Tracing  TracingConfig
 }
 
 // LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
@@ -58,6 +58,7 @@ func LoadServer() ServerConfig {
 
 		S3:       LoadS3(),
 		RabbitMQ: LoadRabbitMQ(),
+		Tracing:  LoadTracing(defaultServerServiceName),
 	}
 }
 
