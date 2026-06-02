@@ -47,3 +47,14 @@ run.md
 tmp
 coverage.out
 cover.out
+
+# Kubernetes local secrets
+k8s/base/secret.yaml
+k8s/base/secret.local.yaml
+k8s/base/*.secret.yaml
+k8s/base/*.local-secret.yaml
+
+k8s/dev/secret.yaml
+k8s/dev/secret.local.yaml
+k8s/dev/*.secret.yaml
+k8s/dev/*.local-secret.yaml

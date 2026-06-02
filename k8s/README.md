@@ -53,3 +53,12 @@ k8s/
 - feature flag для OpenTelemetry;
 - OTLP exporter endpoint.
 
+## Secret
+
+Секретная конфигурация приложения описана в example-файле k8s/base/secret.example.yaml
+В нём находятся чувствительные env-переменные:
+
+* GOPHPROFILE_DATABASE_DSN;
+* GOPHPROFILE_S3_ACCESS_KEY;
+* GOPHPROFILE_S3_SECRET_KEY;
+* GOPHPROFILE_RABBITMQ_URL.
