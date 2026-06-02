@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gophprofile-config
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+data:
+  GOPHPROFILE_LOG_LEVEL: "info"
+
+  GOPHPROFILE_SERVER_ADDRESS: ":8080"
+  GOPHPROFILE_WORKER_METRICS_ADDRESS: ":9091"
+  GOPHPROFILE_MAX_UPLOAD_SIZE_BYTES: "10485760"
+
+  GOPHPROFILE_S3_ENDPOINT: "http://gophprofile-minio:9000"
+  GOPHPROFILE_S3_REGION: "us-east-1"
+  GOPHPROFILE_S3_BUCKET: "avatars"
+  GOPHPROFILE_S3_USE_PATH_STYLE: "true"
+
+  GOPHPROFILE_RABBITMQ_EXCHANGE: "avatars.exchange"
+  GOPHPROFILE_RABBITMQ_UPLOAD_QUEUE: "avatar.uploaded.queue"
+  GOPHPROFILE_RABBITMQ_UPLOAD_ROUTING_KEY: "avatar.uploaded"
+  GOPHPROFILE_RABBITMQ_DELETE_QUEUE: "avatar.deleted.queue"
+  GOPHPROFILE_RABBITMQ_DELETE_ROUTING_KEY: "avatar.deleted"
+
+  GOPHPROFILE_OTEL_ENABLED: "false"
+  GOPHPROFILE_OTEL_EXPORTER_ENDPOINT: "jaeger:4318"
