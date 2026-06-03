@@ -1093,3 +1093,21 @@ http://localhost:9200
 ```bash
 http://localhost:5601
 ```
+
+
+## Сборка Docker-образов для Kubernetes
+
+Server и worker собираются отдельными Dockerfile-ами:
+
+```bash
+docker build -f docker/server.Dockerfile -t gophprofile-server:local .
+docker build -f docker/worker.Dockerfile -t gophprofile-worker:local .
+```
+
+Проверка:
+
+```bash
+docker images | grep gophprofile
+```
+
+Эти локальные tags используются в Kubernetes-манифестах для dev-запуска.

@@ -62,3 +62,44 @@ k8s/
 * GOPHPROFILE_S3_ACCESS_KEY;
 * GOPHPROFILE_S3_SECRET_KEY;
 * GOPHPROFILE_RABBITMQ_URL.
+
+## Docker images для Kubernetes
+
+В проекте server и worker собираются отдельными Dockerfile-ами:
+
+```text
+docker/server.Dockerfile
+docker/worker.Dockerfile
+```
+
+Для Kubernetes используем отдельные образы:
+
+```text
+gophprofile-server:local
+gophprofile-worker:local
+```
+
+### Сборка образа server
+
+```bash
+docker build -f docker/server.Dockerfile -t gophprofile-server:local .
+```
+
+### Сборка образа worker
+
+```bash
+docker build -f docker/worker.Dockerfile -t gophprofile-worker:local .
+```
+
+### Проверка локальных образов
+
+```bash
+docker images | grep gophprofile
+```
+
+Ожидаемо должны появиться два образа:
+
+```text
+gophprofile-server   local
+gophprofile-worker   local
+```
