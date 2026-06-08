@@ -115,3 +115,25 @@ k8s/base/ingress.yaml
 Локальный host:
 
 gophprofile.local
+
+
+## Liveness и readiness probes
+
+В приложении используются отдельные endpoints для Kubernetes probes:
+
+| Endpoint | Назначение |
+|---|---|
+| `/live` | Проверяет, что процесс жив и HTTP-server отвечает |
+| `/ready` | Проверяет, что приложение готово принимать трафик |
+| `/health` | Старый общий healthcheck для ручной проверки и совместимости |
+
+Для server:
+
+- `livenessProbe` использует `/live`;
+- `readinessProbe` использует `/ready`.
+
+Для worker:
+
+- probes доступны на metrics-порту `9091`;
+- `livenessProbe` использует `/live`;
+- `readinessProbe` использует `/ready`.

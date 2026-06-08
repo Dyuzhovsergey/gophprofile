@@ -17,6 +17,31 @@ func (p fakeHealthPinger) Ping(ctx context.Context) error {
 	return p.err
 }
 
+func TestHealthHandler_Live_OK(t *testing.T) {
+	handler := NewHealthHandler(
+		fakeHealthPinger{err: errors.New("postgres is unavailable")},
+		fakeHealthPinger{err: errors.New("s3 is unavailable")},
+		fakeHealthPinger{err: errors.New("rabbitmq is unavailable")},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/live", nil)
+	rec := httptest.NewRecorder()
+
+	handler.Live(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	response := decodeHealthResponse(t, rec)
+
+	if response.Status != "ok" {
+		t.Fatalf("unexpected status: got %q, want %q", response.Status, "ok")
+	}
+
+	assertHealthDetail(t, response, "server", "ok")
+}
+
 func TestHealthHandler_Handle_OK(t *testing.T) {
 	handler := NewHealthHandler(
 		fakeHealthPinger{},

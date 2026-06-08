@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,6 +73,8 @@ func main() {
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", appMetrics.Handler())
+	metricsMux.HandleFunc("/live", handleWorkerProbe)
+	metricsMux.HandleFunc("/ready", handleWorkerProbe)
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -199,4 +202,25 @@ func main() {
 	}
 
 	log.Info("GophProfile worker stopped")
+}
+
+// workerProbeResponse описывает ответ probe-endpoint-а worker-а.
+type workerProbeResponse struct {
+	Status  string            `json:"status"`
+	Details map[string]string `json:"details"`
+}
+
+// handleWorkerProbe обрабатывает liveness/readiness probe worker-а.
+func handleWorkerProbe(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(workerProbeResponse{
+		Status: "ok",
+		Details: map[string]string{
+			"worker": "ok",
+		},
+	}); err != nil {
+		http.Error(w, "failed to encode worker probe response", http.StatusInternalServerError)
+	}
 }
