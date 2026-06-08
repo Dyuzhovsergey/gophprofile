@@ -103,3 +103,15 @@ docker images | grep gophprofile
 gophprofile-server   local
 gophprofile-worker   local
 ```
+
+## Ingress
+
+Для внешнего HTTP-доступа используется Kubernetes Ingress:
+
+```text
+k8s/base/ingress.yaml
+```
+
+Локальный host:
+
+gophprofile.local
