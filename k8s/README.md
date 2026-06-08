@@ -137,3 +137,18 @@ gophprofile.local
 - probes доступны на metrics-порту `9091`;
 - `livenessProbe` использует `/live`;
 - `readinessProbe` использует `/ready`.
+
+## HorizontalPodAutoscaler
+
+Для server используется HPA:
+
+```text
+k8s/base/server-hpa.yaml
+```
+
+Он масштабирует Deployment gophprofile-server по CPU и memory:
+
+CPU target: 70%;
+memory target: 80%;
+minReplicas: 1;
+maxReplicas: 3.
