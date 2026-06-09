@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gophprofile-app-egress
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - gophprofile
+      - key: app.kubernetes.io/instance
+        operator: In
+        values:
+          - gophprofile
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - server
+          - worker
+  policyTypes:
+    - Egress
+  egress:
+    # Разрешаем DNS-запросы к kube-dns.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Разрешаем подключение к PostgreSQL.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Разрешаем подключение к RabbitMQ по AMQP.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+
+    # Разрешаем подключение к MinIO S3 API.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: minio
+      ports:
+        - protocol: TCP
+          port: 9000

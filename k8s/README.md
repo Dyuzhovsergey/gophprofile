@@ -232,3 +232,25 @@ app.kubernetes.io/component: server
 Разрешён входящий трафик:
 - от ingress-controller Traefik из namespace `kube-system`;
 - от Prometheus из namespace `monitoring`, если позже будет установлен Prometheus Operator.
+
+## NetworkPolicy для исходящего трафика server и worker
+
+Для ограничения исходящего трафика от application Pod используется манифест:
+
+```text
+k8s/base/networkpolicy-egress.yaml
+```
+
+Политика выбирает Pod-ы:
+
+```yaml
+app.kubernetes.io/component: server
+app.kubernetes.io/component: worker
+```
+
+Разрешён исходящий трафик:
+
+- DNS в namespace `kube-system`, порт `53` TCP/UDP;
+- PostgreSQL, порт `5432`;
+- RabbitMQ AMQP, порт `5672`;
+- MinIO S3 API, порт `9000`.
