@@ -38,7 +38,7 @@ internal/
   config/        Конфигурация приложения
   domain/        Доменные сущности и ошибки
   handlers/      HTTP handlers и router
-  logger/        Zap logger
+  logger/        slog logger
   middleware/    HTTP middleware
   repository/    PostgreSQL и S3 repositories
   services/      Бизнес-логика
@@ -48,6 +48,34 @@ migrations/      SQL-миграции PostgreSQL
 docker/          Dockerfile-ы server и worker
 web/             Статические файлы
 ```
+
+### Приложения
+
+В проекте есть два отдельных Go-приложения:
+
+| Приложение | Точка входа | Назначение |
+|---|---|---|
+| server | `cmd/server/main.go` | HTTP API, web-интерфейс, `/health`, `/metrics`, публикация событий через Outbox |
+| worker | `cmd/worker/main.go` | Фоновая обработка событий RabbitMQ, генерация thumbnails, удаление файлов, отдельный `/metrics` endpoint |
+
+### Docker-образы
+
+В проекте используются отдельные Dockerfile-ы:
+
+| Dockerfile | Что собирает |
+|---|---|
+| `docker/server.Dockerfile` | образ server |
+| `docker/worker.Dockerfile` | образ worker |
+
+### Docker Compose
+
+Основной compose-файл:
+
+```text
+docker-compose.yaml
+
+
+
 ## Адреса сервисов
 HTTP API	http://localhost:9090
 Web upload	http://localhost:9090/web/upload
@@ -55,11 +83,31 @@ Web gallery	http://localhost:9090/web/gallery/user
 PostgreSQL	localhost:5433
 MinIO API	http://localhost:9000
 MinIO Console	http://localhost:9001
-RabbitMQ AMQP	localhost:5672
+RabbitMQ AMQP	http://localhost:5672
 RabbitMQ Management UI	http://localhost:15672
 Jaeger UI	http://localhost:16686
 Jaeger OTLP HTTP	http://localhost:4318
 Jaeger OTLP gRPC	http://localhost:4317
+
+
+## Порты локального запуска
+
+| Компонент        | URL                              |
+| ---------------- | -------------------------------- |
+| HTTP API         | `http://localhost:9090`          |
+| Server metrics   | `http://localhost:9090/metrics`  |
+| Worker metrics   | `http://localhost:9091/metrics`  |
+| PostgreSQL       | `localhost:5433`                 |
+| MinIO API        | `http://localhost:9000`          |
+| MinIO Console    | `http://localhost:9001`          |
+| RabbitMQ AMQP    | `localhost:5672`                 |
+| RabbitMQ UI      | `http://localhost:15672`         |
+| RabbitMQ metrics | `http://localhost:15692/metrics` |
+| Jaeger UI        | `http://localhost:16686`         |
+| Prometheus       | `http://localhost:9092`          |
+| Alertmanager     | `http://localhost:9093`          |
+| Grafana          | `http://localhost:3000`          |
+| Loki             | `http://localhost:3100`          |
 
 
 ## Локальный запуск через Docker Compose
