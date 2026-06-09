@@ -265,7 +265,7 @@ func handleAvatarUploadedDelivery(
 	workerMetrics *observabilitymetrics.WorkerMetrics,
 	log *slog.Logger,
 ) error {
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	deliveryCtx := extractTraceHeaders(context.WithoutCancel(ctx), delivery.Headers)
 
 	if log == nil {
 		log = logger.NewNop()
@@ -366,7 +366,7 @@ func handleAvatarDeletedDelivery(
 	workerMetrics *observabilitymetrics.WorkerMetrics,
 	log *slog.Logger,
 ) error {
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	deliveryCtx := extractTraceHeaders(context.WithoutCancel(ctx), delivery.Headers)
 
 	if log == nil {
 		log = logger.NewNop()

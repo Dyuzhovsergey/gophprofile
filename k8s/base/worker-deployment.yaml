@@ -26,6 +26,7 @@ spec:
     spec:
       serviceAccountName: gophprofile-app
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
