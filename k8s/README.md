@@ -166,3 +166,24 @@ k8s/base/worker-hpa.yaml
 minReplicas: 1;
 maxReplicas: 3;
 CPU target utilization: 70%.
+
+
+## ServiceMonitor для server metrics
+
+Server отдаёт Prometheus-метрики на endpoint:
+
+```text
+/metrics
+```
+
+В Kubernetes для автоматического обнаружения server metrics используется:
+k8s/base/server-servicemonitor.yaml
+
+ServiceMonitor выбирает Service gophprofile-server по labels:
+app.kubernetes.io/name: gophprofile
+app.kubernetes.io/instance: gophprofile
+app.kubernetes.io/component: server
+
+И собирает метрики с порта Service:
+port: metrics
+path: /metrics

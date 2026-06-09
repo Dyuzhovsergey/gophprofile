@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gophprofile-server
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gophprofile
+      app.kubernetes.io/instance: gophprofile
+      app.kubernetes.io/component: server
+  namespaceSelector:
+    matchNames:
+      - gophprofile
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
