@@ -305,3 +305,41 @@ securityContext:
 - для временных файлов используется отдельный writable volume `/tmp`.
 
 
+## PodDisruptionBudget и rolling update strategy
+
+Для server и worker настроены:
+
+- `PodDisruptionBudget`;
+- rolling update strategy в Deployment.
+
+Манифесты:
+
+```text
+k8s/base/server-pdb.yaml
+k8s/base/worker-pdb.yaml
+```
+
+Для server и worker используется PDB:
+
+```yaml
+minAvailable: 1
+```
+
+Это означает, что при добровольных disruptions Kubernetes должен сохранить минимум один доступный Pod выбранного компонента.
+
+В Deployment-ах настроена стратегия обновления:
+
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+```
+
+Что это означает:
+
+- `maxUnavailable: 0` — во время обновления нельзя оставлять компонент без доступного Pod;
+- `maxSurge: 1` — Kubernetes может временно создать один дополнительный Pod;
+- новый Pod должен пройти readiness probe, прежде чем старый Pod будет остановлен.
+
