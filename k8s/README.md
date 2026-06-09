@@ -194,7 +194,7 @@ Worker отдаёт Prometheus-метрики на отдельном metrics-п
 
 ```text
 9091
-
+```
 Endpoint метрик:
 
 /metrics
@@ -210,3 +210,25 @@ app.kubernetes.io/component: worker
 И собирает метрики с порта Service:
 port: metrics
 path: /metrics
+
+
+
+## NetworkPolicy для входящего трафика server
+
+Для ограничения входящего трафика к server Pod используется манифест:
+
+```text
+k8s/base/networkpolicy-ingress.yaml
+```
+
+Политика выбирает server Pod по labels:
+
+```yaml
+app.kubernetes.io/name: gophprofile
+app.kubernetes.io/instance: gophprofile
+app.kubernetes.io/component: server
+```
+
+Разрешён входящий трафик:
+- от ingress-controller Traefik из namespace `kube-system`;
+- от Prometheus из namespace `monitoring`, если позже будет установлен Prometheus Operator.
