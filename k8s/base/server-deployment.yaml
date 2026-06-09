@@ -24,6 +24,7 @@ spec:
         app.kubernetes.io/component: server
         app.kubernetes.io/part-of: gophprofile
     spec:
+      serviceAccountName: gophprofile-app
       automountServiceAccountToken: false
       containers:
         - name: server

@@ -24,6 +24,7 @@ spec:
         app.kubernetes.io/component: worker
         app.kubernetes.io/part-of: gophprofile
     spec:
+      serviceAccountName: gophprofile-app
       automountServiceAccountToken: false
       containers:
         - name: worker

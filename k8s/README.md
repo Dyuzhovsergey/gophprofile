@@ -254,3 +254,18 @@ app.kubernetes.io/component: worker
 - PostgreSQL, порт `5432`;
 - RabbitMQ AMQP, порт `5672`;
 - MinIO S3 API, порт `9000`.
+
+
+## ServiceAccount и RBAC
+
+Для server и worker используется отдельный ServiceAccount:
+
+```text
+gophprofile-app
+```
+
+Манифест:
+
+```text
+k8s/base/rbac.yaml
+```
