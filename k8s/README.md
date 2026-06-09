@@ -152,3 +152,17 @@ CPU target: 70%;
 memory target: 80%;
 minReplicas: 1;
 maxReplicas: 3.
+
+
+Для worker используется HPA:
+
+```text
+k8s/base/worker-hpa.yaml
+```
+
+Он масштабирует Deployment gophprofile-server по CPU:
+Текущая dev-стратегия:
+
+minReplicas: 1;
+maxReplicas: 3;
+CPU target utilization: 70%.
