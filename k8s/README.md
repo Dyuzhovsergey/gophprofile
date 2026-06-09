@@ -187,3 +187,26 @@ app.kubernetes.io/component: server
 И собирает метрики с порта Service:
 port: metrics
 path: /metrics
+
+## ServiceMonitor для worker metrics
+
+Worker отдаёт Prometheus-метрики на отдельном metrics-порту:
+
+```text
+9091
+
+Endpoint метрик:
+
+/metrics
+
+Для автоматического обнаружения worker metrics используется манифест:
+k8s/base/worker-servicemonitor.yaml
+
+ServiceMonitor выбирает Service gophprofile-worker по labels:
+app.kubernetes.io/name: gophprofile
+app.kubernetes.io/instance: gophprofile
+app.kubernetes.io/component: worker
+
+И собирает метрики с порта Service:
+port: metrics
+path: /metrics
