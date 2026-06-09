@@ -269,3 +269,39 @@ gophprofile-app
 ```text
 k8s/base/rbac.yaml
 ```
+
+## SecurityContext для server и worker
+
+Для server и worker настроены Pod-level и container-level securityContext.
+
+Pod-level настройки:
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+Container-level настройки:
+
+```yaml
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+```
+
+- контейнер запускается не от root;
+- Kubernetes API token не монтируется внутрь контейнера;
+- privilege escalation запрещён;
+- Linux capabilities сброшены;
+- root filesystem доступен только на чтение;
+- для временных файлов используется отдельный writable volume `/tmp`.
+
+

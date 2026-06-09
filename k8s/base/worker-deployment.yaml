@@ -26,10 +26,23 @@ spec:
     spec:
       serviceAccountName: gophprofile-app
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: docker.io/library/gophprofile-worker:local
           imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL          
           ports:
             - name: metrics
               containerPort: 9091
@@ -42,6 +55,9 @@ spec:
                 name: gophprofile-config
             - secretRef:
                 name: gophprofile-secret
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp                
           resources:
             requests:
               cpu: "100m"
@@ -71,3 +87,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3  
+      volumes:
+        - name: tmp
+          emptyDir: {}            
