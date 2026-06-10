@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gophprofile-postgres-data
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: gophprofile
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gophprofile-postgres
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gophprofile
+      app.kubernetes.io/instance: gophprofile
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gophprofile
+        app.kubernetes.io/instance: gophprofile
+        app.kubernetes.io/component: postgres
+        app.kubernetes.io/part-of: gophprofile
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:13.0-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "gophprofile"
+            - name: POSTGRES_USER
+              value: "gophprofile"
+            - name: POSTGRES_PASSWORD
+              value: "gophprofile"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - gophprofile
+                - -d
+                - gophprofile
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - gophprofile
+                - -d
+                - gophprofile
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: gophprofile-postgres-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gophprofile-postgres
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/part-of: gophprofile
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

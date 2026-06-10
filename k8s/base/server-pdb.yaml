@@ -1,0 +1,18 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gophprofile-server
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gophprofile
+      app.kubernetes.io/instance: gophprofile
+      app.kubernetes.io/component: server

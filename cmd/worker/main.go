@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,8 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	avatarworker "github.com/Dyuzhovsergey/gophprofile/internal/worker"
 )
+
+const workerShutdownTimeout = 25 * time.Second
 
 func main() {
 	cfg := config.LoadWorker()
@@ -72,6 +75,8 @@ func main() {
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", appMetrics.Handler())
+	metricsMux.HandleFunc("/live", handleWorkerProbe)
+	metricsMux.HandleFunc("/ready", handleWorkerProbe)
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -179,24 +184,82 @@ func main() {
 		slog.String("upload_queue", cfg.RabbitMQ.UploadQueue),
 	)
 
-	if err := consumer.ConsumeAvatarEvents(
-		ctx,
-		processor.HandleAvatarUploaded,
-		processor.HandleAvatarDeleted,
-	); err != nil && !errors.Is(err, context.Canceled) {
-		log.LogAttrs(
+	consumeErr := make(chan error, 1)
+
+	go func() {
+		consumeErr <- consumer.ConsumeAvatarEvents(
 			ctx,
-			slog.LevelError,
-			"failed to consume avatar events",
-			observabilitylogging.ErrorAttrs(
-				ctx,
-				observabilitylogging.ComponentWorker,
-				"worker.consume_avatar_events",
-				err,
-			)...,
+			processor.HandleAvatarUploaded,
+			processor.HandleAvatarDeleted,
 		)
-		os.Exit(1)
+	}()
+
+	select {
+	case err := <-consumeErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.LogAttrs(
+				ctx,
+				slog.LevelError,
+				"failed to consume avatar events",
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentWorker,
+					"worker.consume_avatar_events",
+					err,
+				)...,
+			)
+			os.Exit(1)
+		}
+
+	case <-ctx.Done():
+		log.Info("worker shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), workerShutdownTimeout)
+		defer cancel()
+
+		select {
+		case err := <-consumeErr:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				log.LogAttrs(
+					context.Background(),
+					slog.LevelError,
+					"failed to stop worker gracefully",
+					observabilitylogging.ErrorAttrs(
+						context.Background(),
+						observabilitylogging.ComponentWorker,
+						"worker.graceful_shutdown",
+						err,
+					)...,
+				)
+				os.Exit(1)
+			}
+
+		case <-shutdownCtx.Done():
+			log.Error("worker graceful shutdown timeout exceeded", logger.Err(shutdownCtx.Err()))
+			os.Exit(1)
+		}
 	}
 
-	log.Info("GophProfile worker stopped")
+	log.Info("GophProfile worker stopped gracefully")
+}
+
+// workerProbeResponse описывает ответ probe-endpoint-а worker-а.
+type workerProbeResponse struct {
+	Status  string            `json:"status"`
+	Details map[string]string `json:"details"`
+}
+
+// handleWorkerProbe обрабатывает liveness/readiness probe worker-а.
+func handleWorkerProbe(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(workerProbeResponse{
+		Status: "ok",
+		Details: map[string]string{
+			"worker": "ok",
+		},
+	}); err != nil {
+		http.Error(w, "failed to encode worker probe response", http.StatusInternalServerError)
+	}
 }

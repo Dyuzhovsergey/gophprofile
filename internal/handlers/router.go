@@ -26,7 +26,10 @@ func NewRouter(
 	router.Use(middleware.Recover(log))
 	router.Use(middleware.CORS)
 
+	router.Get("/live", healthHandler.Live)
+	router.Get("/ready", healthHandler.Ready)
 	router.Get("/health", healthHandler.Handle)
+
 	router.Handle("/metrics", appMetrics.Handler())
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/web/upload", http.StatusSeeOther)

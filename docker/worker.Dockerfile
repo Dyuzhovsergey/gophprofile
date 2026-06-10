@@ -18,4 +18,6 @@ WORKDIR /app
 
 COPY --from=builder /out/worker /app/worker
 
+EXPOSE 9091
+
 ENTRYPOINT ["/app/worker"]
