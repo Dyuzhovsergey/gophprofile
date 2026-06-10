@@ -1,0 +1,97 @@
+nameOverride: ""
+fullnameOverride: ""
+
+namespaceOverride: ""
+
+commonLabels:
+  app.kubernetes.io/part-of: gophprofile
+
+server:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: docker.io/library/gophprofile-server
+    tag: local
+    pullPolicy: Never
+  service:
+    type: ClusterIP
+    httpPort: 80
+    metricsPort: 9090
+  containerPort: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: docker.io/library/gophprofile-worker
+    tag: local
+    pullPolicy: Never
+  service:
+    type: ClusterIP
+    metricsPort: 9091
+  containerPort: 9091
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+config:
+  logLevel: info
+  serverAddress: ":8080"
+  workerMetricsAddress: ":9091"
+  maxUploadSizeBytes: "10485760"
+  s3Endpoint: "http://gophprofile-minio:9000"
+  s3Region: "us-east-1"
+  s3Bucket: "avatars"
+  s3UsePathStyle: "true"
+  rabbitmqExchange: "avatars.exchange"
+  rabbitmqUploadQueue: "avatar.uploaded.queue"
+  rabbitmqUploadRoutingKey: "avatar.uploaded"
+  rabbitmqDeleteQueue: "avatar.deleted.queue"
+  rabbitmqDeleteRoutingKey: "avatar.deleted"
+  otelEnabled: "false"
+  otelExporterEndpoint: "jaeger:4318"
+
+secret:
+  create: false
+  name: gophprofile-secret
+
+ingress:
+  enabled: false
+  className: traefik
+  host: gophprofile.local
+
+autoscaling:
+  server:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  worker:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+
+networkPolicy:
+  enabled: false
+
+rbac:
+  create: true
+  serviceAccountName: gophprofile-app
