@@ -323,3 +323,40 @@ values.yaml
   → values-файл окружения
     → параметры --set
 ```
+
+
+## Подсказки после установки
+
+Chart содержит:
+
+```text
+templates/NOTES.txt
+```
+
+После `helm install` или `helm upgrade` Helm показывает:
+
+- имя release и namespace;
+- состояние Kubernetes-ресурсов;
+- адрес Ingress;
+- команды port-forward;
+- проверки `/live`, `/ready`, `/health` и `/metrics`;
+- команды просмотра server и worker logs;
+- состояние миграционного hook-а;
+- проверки HPA, ServiceMonitor и NetworkPolicy.
+
+Проверка без установки:
+
+```bash
+helm install gophprofile-notes charts/gophprofile \
+  --namespace gophprofile \
+  -f charts/gophprofile/values.local.yaml \
+  --dry-run \
+  --debug
+```
+
+После реальной установки подсказки можно показать повторно:
+
+```bash
+helm get notes gophprofile -n gophprofile
+```
+
