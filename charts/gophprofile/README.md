@@ -67,3 +67,38 @@ secret:
   s3SecretKey: ""
   rabbitmqURL: ""
 ```
+
+## Server и worker
+
+Chart создаёт отдельные Deployment и Service для server и worker:
+
+```text
+templates/server-deployment.yaml
+templates/server-service.yaml
+templates/worker-deployment.yaml
+templates/worker-service.yaml
+```
+
+Через `values.yaml` настраиваются:
+
+- image repository и tag;
+- imagePullPolicy;
+- количество реплик;
+- контейнерные и Service-порты;
+- CPU и memory requests/limits;
+- startup, liveness и readiness probes;
+- termination grace period;
+- rolling update strategy.
+
+Server получает конфигурацию из ConfigMap и Secret:
+
+```yaml
+envFrom:
+  - configMapRef:
+      name: gophprofile-config
+  - secretRef:
+      name: gophprofile-secret
+```
+
+Worker использует те же ConfigMap и Secret, но имеет отдельное имя сервиса и metrics-порт `9091`.
+

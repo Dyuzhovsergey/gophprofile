@@ -1,0 +1,77 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.workerName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    {{- toYaml .Values.worker.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "gophprofile.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "gophprofile.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: gophprofile
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.containerPort }}
+              protocol: TCP
+          env:
+            - name: GOPHPROFILE_SERVICE_NAME
+              value: "gophprofile-worker"
+          envFrom:
+            - configMapRef:
+                name: {{ include "gophprofile.configMapName" . }}
+            - secretRef:
+                name: {{ include "gophprofile.secretName" . }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+
+          {{- if .Values.worker.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.worker.probes.startup.path }}
+              port: metrics
+            periodSeconds: {{ .Values.worker.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.probes.startup.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.worker.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.worker.probes.liveness.path }}
+              port: metrics
+            initialDelaySeconds: {{ .Values.worker.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.probes.liveness.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.worker.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.worker.probes.readiness.path }}
+              port: metrics
+            initialDelaySeconds: {{ .Values.worker.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.probes.readiness.failureThreshold }}
+          {{- end }}
+{{- end }}

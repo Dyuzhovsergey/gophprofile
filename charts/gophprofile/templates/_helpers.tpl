@@ -70,3 +70,16 @@ Secret может быть создан Helm Chart-ом или существо�
 {{- default (printf "%s-secret" (include "gophprofile.fullname" .)) .Values.secret.name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{/*
+Возвращает имя Kubernetes-ресурсов server-а.
+*/}}
+{{- define "gophprofile.serverName" -}}
+{{- printf "%s-server" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Возвращает имя Kubernetes-ресурсов worker-а.
+*/}}
+{{- define "gophprofile.workerName" -}}
+{{- printf "%s-worker" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}

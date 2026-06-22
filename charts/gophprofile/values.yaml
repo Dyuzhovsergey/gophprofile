@@ -8,16 +8,29 @@ commonLabels:
 
 server:
   enabled: true
+
   replicaCount: 1
+
   image:
     repository: docker.io/library/gophprofile-server
     tag: local
     pullPolicy: Never
+
+  containerPort: 8080
+
   service:
     type: ClusterIP
     httpPort: 80
     metricsPort: 9090
-  containerPort: 8080
+
+  terminationGracePeriodSeconds: 30
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
   resources:
     requests:
       cpu: 100m
@@ -26,17 +39,54 @@ server:
       cpu: 500m
       memory: 512Mi
 
+  probes:
+    startup:
+      enabled: true
+      path: /live
+      periodSeconds: 2
+      timeoutSeconds: 2
+      failureThreshold: 30
+
+    liveness:
+      enabled: true
+      path: /live
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+
+    readiness:
+      enabled: true
+      path: /ready
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+
 worker:
   enabled: true
+
   replicaCount: 1
+
   image:
     repository: docker.io/library/gophprofile-worker
     tag: local
     pullPolicy: Never
+
+  containerPort: 9091
+
   service:
     type: ClusterIP
     metricsPort: 9091
-  containerPort: 9091
+
+  terminationGracePeriodSeconds: 60
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
   resources:
     requests:
       cpu: 100m
@@ -44,6 +94,30 @@ worker:
     limits:
       cpu: 500m
       memory: 512Mi
+
+  probes:
+    startup:
+      enabled: true
+      path: /live
+      periodSeconds: 2
+      timeoutSeconds: 2
+      failureThreshold: 30
+
+    liveness:
+      enabled: true
+      path: /live
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+
+    readiness:
+      enabled: true
+      path: /ready
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
 
 config:
   logLevel: info
@@ -51,7 +125,7 @@ config:
   serverAddress: ":8080"
   workerMetricsAddress: ":9091"
   maxUploadSizeBytes: "10485760"
-  
+
   s3Endpoint: "http://gophprofile-minio:9000"
   s3Region: "us-east-1"
   s3Bucket: "avatars"

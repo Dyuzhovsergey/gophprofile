@@ -1,0 +1,77 @@
+{{- if .Values.server.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.serverName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  strategy:
+    {{- toYaml .Values.server.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "gophprofile.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "gophprofile.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        app.kubernetes.io/part-of: gophprofile
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.server.terminationGracePeriodSeconds }}
+      containers:
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.containerPort }}
+              protocol: TCP
+          env:
+            - name: GOPHPROFILE_SERVICE_NAME
+              value: "gophprofile-server"
+          envFrom:
+            - configMapRef:
+                name: {{ include "gophprofile.configMapName" . }}
+            - secretRef:
+                name: {{ include "gophprofile.secretName" . }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+
+          {{- if .Values.server.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.server.probes.startup.path }}
+              port: http
+            periodSeconds: {{ .Values.server.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.startup.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.server.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.server.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.server.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.liveness.failureThreshold }}
+          {{- end }}
+
+          {{- if .Values.server.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.server.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.server.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.readiness.failureThreshold }}
+          {{- end }}
+{{- end }}
