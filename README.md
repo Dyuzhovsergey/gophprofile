@@ -1465,3 +1465,23 @@ Helm Chart является основным способом установки
 - [Архитектура GophProfile в Kubernetes](docs/architecture-k8s.md)
 - [Kubernetes-манифесты](k8s/README.md)
 - [Helm Chart](charts/gophprofile/README.md)
+
+
+
+### Kubernetes
+
+Пошаговая инструкция по развёртыванию GophProfile через `kubectl` находится в документе:
+
+* [Kubernetes-манифесты и руководство по деплою](k8s/README.md)
+
+Инструкция включает:
+
+* подготовку Rancher Desktop;
+* сборку локальных Docker-образов;
+* создание namespace, ConfigMap и Secret;
+* запуск PostgreSQL, RabbitMQ и MinIO;
+* выполнение миграций;
+* запуск server и worker;
+* настройку Ingress, HPA, PDB и NetworkPolicy;
+* проверку health, metrics и загрузки аватарки;
+* команды диагностики и очистки окружения.

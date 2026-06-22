@@ -343,3 +343,900 @@ strategy:
 - `maxSurge: 1` — Kubernetes может временно создать один дополнительный Pod;
 - новый Pod должен пройти readiness probe, прежде чем старый Pod будет остановлен.
 
+## Полный деплой GophProfile через kubectl
+
+Этот раздел описывает развёртывание GophProfile в локальном Kubernetes-кластере Rancher Desktop с чистого namespace.
+
+В локальном окружении внутри Kubernetes запускаются:
+
+* PostgreSQL;
+* RabbitMQ;
+* MinIO;
+* migration Job;
+* GophProfile server;
+* GophProfile worker.
+
+Обычные Kubernetes-манифесты находятся в директориях:
+
+```text
+k8s/base/
+k8s/dev/
+```
+
+Манифесты из `k8s/dev` предназначены только для локальной разработки и не являются production-ready.
+
+### Предварительные требования
+
+Должны быть установлены и запущены:
+
+* Rancher Desktop;
+* Kubernetes в Rancher Desktop;
+* контейнерный движок Moby/dockerd;
+* `docker`;
+* `kubectl`.
+
+Проверка Docker:
+
+```bash
+docker version
+```
+
+Проверка текущего Kubernetes context:
+
+```bash
+kubectl config current-context
+```
+
+Ожидаемо:
+
+```text
+rancher-desktop
+```
+
+Если выбран другой context:
+
+```bash
+kubectl config use-context rancher-desktop
+```
+
+Проверка кластера:
+
+```bash
+kubectl cluster-info
+kubectl get nodes
+```
+
+Node должен находиться в состоянии:
+
+```text
+Ready
+```
+
+### 1. Сборка локальных Docker-образов
+
+Kubernetes Deployment использует локальные images с политикой:
+
+```yaml
+imagePullPolicy: Never
+```
+
+Поэтому images должны быть собраны в Docker Rancher Desktop до запуска Pod-ов.
+
+Сборка server:
+
+```bash
+docker build \
+  -f docker/server.Dockerfile \
+  -t docker.io/library/gophprofile-server:local .
+```
+
+Сборка worker:
+
+```bash
+docker build \
+  -f docker/worker.Dockerfile \
+  -t docker.io/library/gophprofile-worker:local .
+```
+
+Сборка мигратора:
+
+```bash
+docker build \
+  -f docker/migrate.Dockerfile \
+  -t docker.io/library/gophprofile-migrate:local .
+```
+
+Проверка:
+
+```bash
+docker images | grep gophprofile
+```
+
+Ожидаемые images:
+
+```text
+gophprofile-server    local
+gophprofile-worker    local
+gophprofile-migrate   local
+```
+
+### 2. Чистое развёртывание
+
+Удаление namespace полностью удаляет ресурсы и данные локальных PVC.
+
+Использовать эту команду следует только для полного сброса dev-окружения:
+
+```bash
+kubectl delete namespace gophprofile --ignore-not-found
+```
+
+Дождаться удаления namespace:
+
+```bash
+kubectl wait \
+  --for=delete namespace/gophprofile \
+  --timeout=180s 2>/dev/null || true
+```
+
+Создать namespace заново:
+
+```bash
+kubectl apply -f k8s/base/namespace.yaml
+kubectl get namespace gophprofile
+```
+
+### 3. ConfigMap
+
+ConfigMap содержит несекретную конфигурацию server и worker:
+
+```bash
+kubectl apply -f k8s/base/configmap.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get configmap gophprofile-config -n gophprofile
+kubectl describe configmap gophprofile-config -n gophprofile
+```
+
+В Kubernetes должны использоваться DNS-имена Service, а не `localhost`:
+
+```text
+gophprofile-postgres
+gophprofile-rabbitmq
+gophprofile-minio
+```
+
+### 4. Локальный Secret
+
+Создать локальный файл из безопасного примера:
+
+```bash
+cp k8s/base/secret.example.yaml \
+   k8s/base/secret.local.yaml
+```
+
+Открыть его:
+
+```bash
+nano k8s/base/secret.local.yaml
+```
+
+Для текущих dev-манифестов значения должны выглядеть примерно так:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gophprofile-secret
+  namespace: gophprofile
+type: Opaque
+stringData:
+  GOPHPROFILE_DATABASE_DSN: "postgres://gophprofile:gophprofile@gophprofile-postgres:5432/gophprofile?sslmode=disable"
+  GOPHPROFILE_S3_ACCESS_KEY: "minioadmin"
+  GOPHPROFILE_S3_SECRET_KEY: "minioadmin"
+  GOPHPROFILE_RABBITMQ_URL: "amqp://gophprofile:gophprofile@gophprofile-rabbitmq:5672/"
+```
+
+Применить Secret:
+
+```bash
+kubectl apply -f k8s/base/secret.local.yaml
+```
+
+Проверка наличия Secret без вывода его содержимого:
+
+```bash
+kubectl get secret gophprofile-secret -n gophprofile
+```
+
+Файл `secret.local.yaml` нельзя добавлять в Git.
+
+### 5. ServiceAccount и RBAC
+
+Создать отдельный ServiceAccount и минимальные RBAC-настройки:
+
+```bash
+kubectl apply -f k8s/base/rbac.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get serviceaccount,role,rolebinding -n gophprofile
+```
+
+Проверка отсутствия лишних прав:
+
+```bash
+kubectl auth can-i list pods \
+  --as=system:serviceaccount:gophprofile:gophprofile-app \
+  -n gophprofile
+```
+
+Ожидаемый ответ:
+
+```text
+no
+```
+
+### 6. PostgreSQL, RabbitMQ и MinIO
+
+Применить dev-зависимости:
+
+```bash
+kubectl apply -f k8s/dev/postgres.yaml
+kubectl apply -f k8s/dev/rabbitmq.yaml
+kubectl apply -f k8s/dev/minio.yaml
+```
+
+Посмотреть создаваемые ресурсы:
+
+```bash
+kubectl get pods,svc,pvc,jobs -n gophprofile
+```
+
+Дождаться готовности PostgreSQL:
+
+```bash
+kubectl rollout status \
+  deployment/gophprofile-postgres \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Дождаться готовности RabbitMQ:
+
+```bash
+kubectl rollout status \
+  deployment/gophprofile-rabbitmq \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Дождаться готовности MinIO:
+
+```bash
+kubectl rollout status \
+  deployment/gophprofile-minio \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Дождаться создания bucket в MinIO:
+
+```bash
+kubectl wait \
+  --for=condition=complete \
+  job/gophprofile-minio-init \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Проверить логи инициализации MinIO:
+
+```bash
+kubectl logs \
+  job/gophprofile-minio-init \
+  -n gophprofile
+```
+
+### 7. Миграции PostgreSQL
+
+Применить migration Job:
+
+```bash
+kubectl apply -f k8s/base/migration-job.yaml
+```
+
+Дождаться выполнения:
+
+```bash
+kubectl wait \
+  --for=condition=complete \
+  job/gophprofile-migrations \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Проверить логи:
+
+```bash
+kubectl logs \
+  job/gophprofile-migrations \
+  -n gophprofile
+```
+
+Ожидаемое сообщение:
+
+```text
+migrations completed successfully
+```
+
+Проверить таблицы PostgreSQL:
+
+```bash
+kubectl exec \
+  deployment/gophprofile-postgres \
+  -n gophprofile \
+  -- psql -U gophprofile -d gophprofile -c '\dt'
+```
+
+В списке должны присутствовать таблицы:
+
+```text
+avatars
+outbox_events
+goose_db_version
+```
+
+Чтобы повторно запустить migration Job, сначала удалить старый Job:
+
+```bash
+kubectl delete job \
+  gophprofile-migrations \
+  -n gophprofile \
+  --ignore-not-found
+
+kubectl apply -f k8s/base/migration-job.yaml
+```
+
+### 8. Service для server и worker
+
+Создать внутренние Kubernetes Service:
+
+```bash
+kubectl apply -f k8s/base/server-service.yaml
+kubectl apply -f k8s/base/worker-service.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get services -n gophprofile
+```
+
+Ожидаемые Service:
+
+```text
+gophprofile-server
+gophprofile-worker
+gophprofile-postgres
+gophprofile-rabbitmq
+gophprofile-minio
+```
+
+### 9. Deployment server и worker
+
+Применить Deployment server:
+
+```bash
+kubectl apply -f k8s/base/server-deployment.yaml
+```
+
+Применить Deployment worker:
+
+```bash
+kubectl apply -f k8s/base/worker-deployment.yaml
+```
+
+Дождаться server:
+
+```bash
+kubectl rollout status \
+  deployment/gophprofile-server \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Дождаться worker:
+
+```bash
+kubectl rollout status \
+  deployment/gophprofile-worker \
+  -n gophprofile \
+  --timeout=300s
+```
+
+Проверить Pod-ы:
+
+```bash
+kubectl get pods -n gophprofile
+```
+
+Server и worker должны находиться в состоянии:
+
+```text
+1/1 Running
+```
+
+Проверить логи server:
+
+```bash
+kubectl logs \
+  -l app.kubernetes.io/component=server \
+  -n gophprofile \
+  --tail=100
+```
+
+Проверить логи worker:
+
+```bash
+kubectl logs \
+  -l app.kubernetes.io/component=worker \
+  -n gophprofile \
+  --tail=100
+```
+
+### 10. Ingress
+
+Проверить доступные IngressClass:
+
+```bash
+kubectl get ingressclass
+```
+
+Для Rancher Desktop используется Traefik.
+
+Применить Ingress:
+
+```bash
+kubectl apply -f k8s/base/ingress.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get ingress -n gophprofile
+kubectl describe ingress gophprofile-server -n gophprofile
+```
+
+Добавить локальный host, если его ещё нет:
+
+```bash
+grep -q "gophprofile.local" /etc/hosts || \
+  echo "127.0.0.1 gophprofile.local" | sudo tee -a /etc/hosts
+```
+
+Проверить:
+
+```bash
+getent hosts gophprofile.local
+```
+
+### 11. HPA
+
+Применить HPA для server и worker:
+
+```bash
+kubectl apply -f k8s/base/server-hpa.yaml
+kubectl apply -f k8s/base/worker-hpa.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get hpa -n gophprofile
+kubectl top pods -n gophprofile
+```
+
+Если в колонке `TARGETS` временно отображается `<unknown>`, нужно подождать, пока Metrics Server соберёт первые метрики.
+
+Проверка Metrics Server:
+
+```bash
+kubectl top nodes
+```
+
+### 12. PodDisruptionBudget
+
+Применить PDB:
+
+```bash
+kubectl apply -f k8s/base/server-pdb.yaml
+kubectl apply -f k8s/base/worker-pdb.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get pdb -n gophprofile
+```
+
+При одной реплике значение `ALLOWED DISRUPTIONS` может быть равно `0`. Это ожидаемо для `minAvailable: 1`.
+
+### 13. NetworkPolicy
+
+NetworkPolicy следует применять после того, как базовая работа приложения уже проверена.
+
+Применить входящую политику:
+
+```bash
+kubectl apply -f k8s/base/networkpolicy-ingress.yaml
+```
+
+Применить исходящую политику:
+
+```bash
+kubectl apply -f k8s/base/networkpolicy-egress.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get networkpolicy -n gophprofile
+kubectl describe networkpolicy -n gophprofile
+```
+
+NetworkPolicy реально ограничивает трафик только при поддержке сетевых политик CNI-плагином кластера.
+
+Если после применения server или worker потеряли доступ к зависимостям, выполнить откат:
+
+```bash
+kubectl delete networkpolicy \
+  gophprofile-server-ingress \
+  gophprofile-app-egress \
+  -n gophprofile \
+  --ignore-not-found
+```
+
+Затем проверить labels зависимостей:
+
+```bash
+kubectl get pods -n gophprofile --show-labels
+```
+
+### 14. ServiceMonitor
+
+ServiceMonitor требует установленный Prometheus Operator и CRD:
+
+```text
+servicemonitors.monitoring.coreos.com
+```
+
+Проверить CRD:
+
+```bash
+kubectl get crd servicemonitors.monitoring.coreos.com
+```
+
+Если CRD существует:
+
+```bash
+kubectl apply -f k8s/base/server-servicemonitor.yaml
+kubectl apply -f k8s/base/worker-servicemonitor.yaml
+```
+
+Проверка:
+
+```bash
+kubectl get servicemonitor -n gophprofile
+```
+
+Если CRD отсутствует, ServiceMonitor применять нельзя. Метрики приложения при этом продолжают работать и доступны через `port-forward`.
+
+Не следует выполнять одну общую команду:
+
+```bash
+kubectl apply -f k8s/base
+```
+
+пока в кластере отсутствует CRD ServiceMonitor.
+
+### 15. Проверка через Ingress
+
+Liveness:
+
+```bash
+curl -i http://gophprofile.local/live
+```
+
+Readiness:
+
+```bash
+curl -i http://gophprofile.local/ready
+```
+
+Общий healthcheck:
+
+```bash
+curl -i http://gophprofile.local/health
+```
+
+Prometheus metrics:
+
+```bash
+curl -i http://gophprofile.local/metrics
+```
+
+Web-интерфейс:
+
+```text
+http://gophprofile.local/web/upload
+```
+
+### 16. Проверка через port-forward
+
+Если Ingress недоступен, запустить:
+
+```bash
+kubectl port-forward \
+  svc/gophprofile-server \
+  8080:80 \
+  -n gophprofile
+```
+
+Команда создаёт временный туннель:
+
+```text
+localhost:8080
+  → Service gophprofile-server:80
+  → server Pod:8080
+```
+
+В другом терминале:
+
+```bash
+curl -i http://localhost:8080/live
+curl -i http://localhost:8080/ready
+curl -i http://localhost:8080/health
+curl -i http://localhost:8080/metrics
+```
+
+Worker metrics:
+
+```bash
+kubectl port-forward \
+  svc/gophprofile-worker \
+  9091:9091 \
+  -n gophprofile
+```
+
+В другом терминале:
+
+```bash
+curl -i http://localhost:9091/live
+curl -i http://localhost:9091/ready
+curl -i http://localhost:9091/metrics
+```
+
+`port-forward` работает только пока соответствующая команда запущена в терминале.
+
+### 17. End-to-end проверка загрузки
+
+Убедиться, что в корне проекта есть тестовое изображение:
+
+```bash
+ls -lh avatar.jpg
+```
+
+Загрузить аватарку:
+
+```bash
+curl -i \
+  -X POST \
+  http://gophprofile.local/api/v1/avatars \
+  -H "X-User-ID: sergey" \
+  -F "file=@avatar.jpg"
+```
+
+Ожидаемый HTTP-статус:
+
+```text
+201 Created
+```
+
+Проверить работу worker:
+
+```bash
+kubectl logs \
+  -l app.kubernetes.io/component=worker \
+  -n gophprofile \
+  --tail=100
+```
+
+Проверить историю пользователя:
+
+```bash
+curl -i \
+  http://gophprofile.local/api/v1/users/sergey/avatars
+```
+
+### 18. Итоговое состояние ресурсов
+
+Проверить основные ресурсы:
+
+```bash
+kubectl get all -n gophprofile
+```
+
+Дополнительные ресурсы:
+
+```bash
+kubectl get ingress,hpa,pdb,networkpolicy -n gophprofile
+```
+
+PVC:
+
+```bash
+kubectl get pvc -n gophprofile
+```
+
+Ожидается, что основные Pod-ы находятся в `Running`:
+
+```text
+gophprofile-postgres
+gophprofile-rabbitmq
+gophprofile-minio
+gophprofile-server
+gophprofile-worker
+```
+
+Job-ы после успешного выполнения могут находиться в `Completed`.
+
+### 19. Полезные диагностические команды
+
+События namespace:
+
+```bash
+kubectl get events \
+  -n gophprofile \
+  --sort-by=.lastTimestamp | tail -50
+```
+
+Описание server Pod:
+
+```bash
+kubectl describe pod \
+  -l app.kubernetes.io/component=server \
+  -n gophprofile
+```
+
+Описание worker Pod:
+
+```bash
+kubectl describe pod \
+  -l app.kubernetes.io/component=worker \
+  -n gophprofile
+```
+
+Логи server:
+
+```bash
+kubectl logs \
+  -l app.kubernetes.io/component=server \
+  -n gophprofile \
+  --tail=100
+```
+
+Логи worker:
+
+```bash
+kubectl logs \
+  -l app.kubernetes.io/component=worker \
+  -n gophprofile \
+  --tail=100
+```
+
+### 20. Частые проблемы
+
+#### `ErrImageNeverPull` или `ImagePullBackOff`
+
+Причина: image отсутствует в Docker Rancher Desktop.
+
+Проверка:
+
+```bash
+docker images | grep gophprofile
+```
+
+Решение: повторно собрать нужный image с точным именем и тегом.
+
+#### Pod находится в `Pending`
+
+Посмотреть причину:
+
+```bash
+kubectl describe pod <pod-name> -n gophprofile
+```
+
+И события:
+
+```bash
+kubectl get events \
+  -n gophprofile \
+  --sort-by=.lastTimestamp | tail -30
+```
+
+#### `CrashLoopBackOff`
+
+Посмотреть текущие логи:
+
+```bash
+kubectl logs <pod-name> -n gophprofile
+```
+
+Посмотреть логи предыдущего запуска контейнера:
+
+```bash
+kubectl logs <pod-name> -n gophprofile --previous
+```
+
+#### `relation "..." does not exist`
+
+Причина: не выполнены миграции PostgreSQL.
+
+Проверить migration Job:
+
+```bash
+kubectl get jobs -n gophprofile
+kubectl logs job/gophprofile-migrations -n gophprofile
+```
+
+#### `no matches for kind "ServiceMonitor"`
+
+Причина: отсутствует Prometheus Operator и CRD ServiceMonitor.
+
+В локальном кластере пропустить применение ServiceMonitor-манифестов.
+
+#### `connection refused` к RabbitMQ
+
+Проверить состояние RabbitMQ:
+
+```bash
+kubectl get pods \
+  -l app.kubernetes.io/component=rabbitmq \
+  -n gophprofile
+
+kubectl logs \
+  -l app.kubernetes.io/component=rabbitmq \
+  -n gophprofile \
+  --tail=100
+```
+
+Проверить Service endpoints:
+
+```bash
+kubectl get endpoints gophprofile-rabbitmq -n gophprofile
+```
+
+### 21. Очистка локального окружения
+
+Удалить только приложение, сохранив зависимости и данные:
+
+```bash
+kubectl delete \
+  -f k8s/base/server-deployment.yaml \
+  -f k8s/base/server-service.yaml \
+  -f k8s/base/worker-deployment.yaml \
+  -f k8s/base/worker-service.yaml \
+  -f k8s/base/ingress.yaml \
+  --ignore-not-found
+```
+
+Полностью удалить dev-окружение вместе с PVC и данными:
+
+```bash
+kubectl delete namespace gophprofile
+```
