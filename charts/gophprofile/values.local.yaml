@@ -1,0 +1,111 @@
+# Локальные настройки для Rancher Desktop.
+# Этот файл не содержит секретов и может храниться в Git.
+
+server:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: docker.io/library/gophprofile-server
+    tag: local
+    pullPolicy: Never
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: docker.io/library/gophprofile-worker
+    tag: local
+    pullPolicy: Never
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+config:
+  logLevel: debug
+
+  serverAddress: ":8080"
+  workerMetricsAddress: ":9091"
+  maxUploadSizeBytes: "10485760"
+
+  s3Endpoint: "http://gophprofile-minio:9000"
+  s3Region: "us-east-1"
+  s3Bucket: "avatars"
+  s3UsePathStyle: "true"
+
+  rabbitmqExchange: "avatars.exchange"
+  rabbitmqUploadQueue: "avatar.uploaded.queue"
+  rabbitmqUploadRoutingKey: "avatar.uploaded"
+  rabbitmqDeleteQueue: "avatar.deleted.queue"
+  rabbitmqDeleteRoutingKey: "avatar.deleted"
+
+  otelEnabled: "false"
+  otelExporterEndpoint: "jaeger:4318"
+
+# Для локального окружения Secret создаётся заранее через kubectl.
+# Реальные значения не хранятся в Helm values.
+secret:
+  create: false
+  name: gophprofile-secret
+
+migration:
+  enabled: true
+
+  image:
+    repository: docker.io/library/gophprofile-migrate
+    tag: local
+    pullPolicy: Never
+
+ingress:
+  enabled: true
+  className: traefik
+  host: gophprofile.local
+  path: /
+  pathType: Prefix
+
+# Для локального кластера оставляем HPA выключенным по умолчанию.
+# Его можно включить отдельно через --set.
+autoscaling:
+  server:
+    enabled: false
+
+  worker:
+    enabled: false
+
+# В текущем Rancher Desktop нет Prometheus Operator и CRD ServiceMonitor.
+serviceMonitor:
+  enabled: false
+
+# Включение зависит от поддержки NetworkPolicy текущим CNI-плагином.
+networkPolicy:
+  enabled: false
+
+rbac:
+  create: true
+  serviceAccountName: ""
+  automountServiceAccountToken: false
+
+securityContext:
+  pod:
+    enabled: true
+
+  container:
+    enabled: true
+
+  tmpVolume:
+    enabled: true
+    mountPath: /tmp

@@ -252,3 +252,74 @@ docker build \
   -t docker.io/library/gophprofile-migrate:local .
 ```
 
+## Values-файлы окружений
+
+Chart использует основной файл значений:
+
+```text
+values.yaml
+```
+
+Дополнительные values-файлы переопределяют только настройки конкретного окружения:
+
+```text
+values.local.yaml
+values.prod.example.yaml
+```
+
+### Локальное окружение
+
+`values.local.yaml` предназначен для Rancher Desktop:
+
+- локальные images с тегом `local`;
+- `imagePullPolicy: Never`;
+- одна реплика server и worker;
+- Traefik Ingress;
+- host `gophprofile.local`;
+- локальные PostgreSQL, RabbitMQ и MinIO;
+- ServiceMonitor выключен, потому что в локальном кластере может отсутствовать Prometheus Operator;
+- секреты берутся из заранее созданного `gophprofile-secret`.
+
+Проверка:
+
+```bash
+helm lint charts/gophprofile \
+  -f charts/gophprofile/values.local.yaml
+
+helm template gophprofile charts/gophprofile \
+  --namespace gophprofile \
+  -f charts/gophprofile/values.local.yaml
+```
+
+
+### Production example
+
+`values.prod.example.yaml` — безопасный пример production-конфигурации:
+
+- images из внешнего registry;
+- фиксированные версии images;
+- несколько реплик;
+- HPA;
+- TLS для Ingress;
+- ServiceMonitor;
+- увеличенные requests и limits.
+
+
+Проверка production-render:
+
+```bash
+helm lint charts/gophprofile \
+  -f charts/gophprofile/values.prod.example.yaml
+
+helm template gophprofile charts/gophprofile \
+  --namespace gophprofile \
+  -f charts/gophprofile/values.prod.example.yaml
+```
+
+Порядок приоритетов Helm:
+
+```text
+values.yaml
+  → values-файл окружения
+    → параметры --set
+```
