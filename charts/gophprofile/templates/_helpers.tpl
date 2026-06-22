@@ -54,3 +54,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "gophprofile.serviceAccountName" -}}
 {{- default (printf "%s-app" (include "gophprofile.fullname" .)) .Values.rbac.serviceAccountName -}}
 {{- end -}}
+
+{{/*
+Возвращает имя ConfigMap приложения.
+*/}}
+{{- define "gophprofile.configMapName" -}}
+{{- printf "%s-config" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+Возвращает имя Secret приложения.
+Secret может быть создан Helm Chart-ом или существовать заранее.
+*/}}
+{{- define "gophprofile.secretName" -}}
+{{- default (printf "%s-secret" (include "gophprofile.fullname" .)) .Values.secret.name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
