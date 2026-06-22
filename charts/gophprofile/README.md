@@ -189,3 +189,66 @@ networkPolicy:
 - входящий metrics-трафик к worker от monitoring namespace;
 - исходящий трафик server/worker к DNS, PostgreSQL, RabbitMQ и MinIO.
 
+## Миграции PostgreSQL
+
+Для запуска миграций используется Helm hook:
+
+```text
+templates/migration-job.yaml
+```
+
+Job выполняется перед:
+
+```text
+helm install
+helm upgrade
+```
+
+Аннотации hook-а:
+
+```yaml
+helm.sh/hook: pre-install,pre-upgrade
+helm.sh/hook-weight: "-5"
+helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+```
+
+После успешного выполнения Job удаляется. При ошибке Job остаётся в namespace, чтобы можно было проверить состояние и логи.
+
+### Существующий Secret
+
+По умолчанию используется уже существующий Secret:
+
+```yaml
+secret:
+  create: false
+  name: gophprofile-secret
+```
+
+Он должен содержать:
+
+```text
+GOPHPROFILE_DATABASE_DSN
+```
+
+Проверка:
+
+```bash
+kubectl get secret gophprofile-secret -n gophprofile
+```
+
+### Migrate image
+
+Для локального Rancher Desktop используется image:
+
+```text
+docker.io/library/gophprofile-migrate:local
+```
+
+Сборка:
+
+```bash
+docker build \
+  -f docker/migrate.Dockerfile \
+  -t docker.io/library/gophprofile-migrate:local .
+```
+

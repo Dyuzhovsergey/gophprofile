@@ -1,0 +1,70 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gophprofile.migrationName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": {{ .Values.migration.hook.weight | quote }}
+    "helm.sh/hook-delete-policy": {{ .Values.migration.hook.deletePolicy | quote }}
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "gophprofile.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+        app.kubernetes.io/part-of: gophprofile
+    spec:
+      serviceAccountName: {{ include "gophprofile.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rbac.automountServiceAccountToken }}
+      restartPolicy: OnFailure
+
+      {{- if .Values.securityContext.pod.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod.settings | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: migrate
+          image: "{{ .Values.migration.image.repository }}:{{ .Values.migration.image.tag }}"
+          imagePullPolicy: {{ .Values.migration.image.pullPolicy }}
+
+          {{- if .Values.securityContext.container.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container.settings | nindent 12 }}
+          {{- end }}
+
+          env:
+            - name: GOPHPROFILE_DATABASE_DSN
+{{ if .Values.secret.create }}
+              value: {{ required "secret.databaseDSN is required when secret.create=true and migration.enabled=true" .Values.secret.databaseDSN | quote }}
+{{ else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "gophprofile.secretName" . }}
+                  key: GOPHPROFILE_DATABASE_DSN
+{{ end }}
+            - name: GOPHPROFILE_MIGRATIONS_DIR
+              value: {{ .Values.migration.migrationsDir | quote }}
+
+          {{- if .Values.securityContext.tmpVolume.enabled }}
+          volumeMounts:
+            - name: tmp
+              mountPath: {{ .Values.securityContext.tmpVolume.mountPath }}
+          {{- end }}
+
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+
+      {{- if .Values.securityContext.tmpVolume.enabled }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- end }}
+{{- end }}

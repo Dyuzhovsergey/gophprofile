@@ -151,6 +151,31 @@ secret:
   s3SecretKey: ""
   rabbitmqURL: ""
 
+migration:
+  enabled: true
+
+  image:
+    repository: docker.io/library/gophprofile-migrate
+    tag: local
+    pullPolicy: Never
+
+  migrationsDir: /app/migrations
+
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+  hook:
+    weight: "-5"
+    deletePolicy: before-hook-creation,hook-succeeded
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
 ingress:
   enabled: false
   className: traefik

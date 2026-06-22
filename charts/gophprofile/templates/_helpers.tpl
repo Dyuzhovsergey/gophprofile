@@ -83,3 +83,10 @@ Secret может быть создан Helm Chart-ом или существо�
 {{- define "gophprofile.workerName" -}}
 {{- printf "%s-worker" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/*
+Возвращает имя Kubernetes Job для миграций БД.
+*/}}
+{{- define "gophprofile.migrationName" -}}
+{{- printf "%s-migrations" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
