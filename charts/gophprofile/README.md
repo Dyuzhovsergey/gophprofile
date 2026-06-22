@@ -360,3 +360,31 @@ helm install gophprofile-notes charts/gophprofile \
 helm get notes gophprofile -n gophprofile
 ```
 
+## Полное руководство по Helm-деплою
+
+Подробная инструкция по установке, обновлению, rollback и удалению релиза находится в документе:
+
+```text
+docs/helm.md
+```
+
+Базовая локальная проверка:
+
+```bash
+helm lint charts/gophprofile \
+  -f charts/gophprofile/values.local.yaml
+
+helm template gophprofile charts/gophprofile \
+  --namespace gophprofile \
+  -f charts/gophprofile/values.local.yaml
+```
+
+Локальная установка после подготовки namespace, Secret и dev-зависимостей:
+
+```bash
+helm upgrade --install gophprofile charts/gophprofile \
+  --namespace gophprofile \
+  -f charts/gophprofile/values.local.yaml \
+  --wait \
+  --timeout 10m
+```

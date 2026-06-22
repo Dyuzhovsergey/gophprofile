@@ -1465,6 +1465,8 @@ Helm Chart является основным способом установки
 - [Архитектура GophProfile в Kubernetes](docs/architecture-k8s.md)
 - [Kubernetes-манифесты](k8s/README.md)
 - [Helm Chart](charts/gophprofile/README.md)
+- [Развёртывание GophProfile через Helm](docs/helm.md)
+
 
 
 
