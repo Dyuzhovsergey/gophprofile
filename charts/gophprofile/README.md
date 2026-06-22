@@ -136,3 +136,56 @@ autoscaling:
 
 Когда HPA включён, поле `spec.replicas` в соответствующем Deployment не генерируется.
 
+
+
+## NetworkPolicy, RBAC и SecurityContext
+
+Chart поддерживает базовые настройки безопасности.
+
+### RBAC
+
+По умолчанию создаются:
+
+- ServiceAccount;
+- Role;
+- RoleBinding.
+
+Приложение не обращается к Kubernetes API, поэтому Role не содержит разрешений:
+
+```yaml
+rules: []
+```
+
+Токен ServiceAccount не монтируется внутрь контейнеров:
+
+```yaml
+automountServiceAccountToken: false
+```
+
+### SecurityContext
+
+Server и worker запускаются:
+
+- не от root;
+- без privilege escalation;
+- без Linux capabilities;
+- с `RuntimeDefault` seccomp profile;
+- с read-only root filesystem.
+
+Для временных файлов монтируется writable volume `/tmp`.
+
+### NetworkPolicy
+
+NetworkPolicy по умолчанию выключен:
+
+```yaml
+networkPolicy:
+  enabled: false
+```
+
+При включении создаются политики:
+
+- входящий трафик к server от Traefik и monitoring namespace;
+- входящий metrics-трафик к worker от monitoring namespace;
+- исходящий трафик server/worker к DNS, PostgreSQL, RabbitMQ и MinIO.
+

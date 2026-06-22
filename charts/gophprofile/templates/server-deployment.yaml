@@ -24,24 +24,46 @@ spec:
         app.kubernetes.io/component: server
         app.kubernetes.io/part-of: gophprofile
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "gophprofile.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rbac.automountServiceAccountToken }}
       terminationGracePeriodSeconds: {{ .Values.server.terminationGracePeriodSeconds }}
+
+      {{- if .Values.securityContext.pod.enabled }}
+      securityContext:
+        {{- toYaml .Values.securityContext.pod.settings | nindent 8 }}
+      {{- end }}
+
       containers:
         - name: server
           image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
           imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+
+          {{- if .Values.securityContext.container.enabled }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container.settings | nindent 12 }}
+          {{- end }}
+
           ports:
             - name: http
               containerPort: {{ .Values.server.containerPort }}
               protocol: TCP
+
           env:
             - name: GOPHPROFILE_SERVICE_NAME
               value: "gophprofile-server"
+
           envFrom:
             - configMapRef:
                 name: {{ include "gophprofile.configMapName" . }}
             - secretRef:
                 name: {{ include "gophprofile.secretName" . }}
+
+          {{- if .Values.securityContext.tmpVolume.enabled }}
+          volumeMounts:
+            - name: tmp
+              mountPath: {{ .Values.securityContext.tmpVolume.mountPath }}
+          {{- end }}
+
           resources:
             {{- toYaml .Values.server.resources | nindent 12 }}
 
@@ -76,4 +98,10 @@ spec:
             timeoutSeconds: {{ .Values.server.probes.readiness.timeoutSeconds }}
             failureThreshold: {{ .Values.server.probes.readiness.failureThreshold }}
           {{- end }}
+
+      {{- if .Values.securityContext.tmpVolume.enabled }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- end }}
 {{- end }}

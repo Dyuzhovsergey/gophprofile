@@ -1,0 +1,182 @@
+{{- if .Values.networkPolicy.enabled }}
+
+{{- if and
+      .Values.networkPolicy.ingress.enabled
+      .Values.server.enabled
+      (or
+        .Values.networkPolicy.ingress.ingressController.enabled
+        .Values.networkPolicy.ingress.monitoring.enabled
+      )
+}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.serverName" . }}-ingress
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gophprofile.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- if .Values.networkPolicy.ingress.ingressController.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.ingressController.namespace | quote }}
+          {{- with .Values.networkPolicy.ingress.ingressController.podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.containerPort }}
+    {{- end }}
+
+    {{- if .Values.networkPolicy.ingress.monitoring.enabled }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.monitoring.namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.containerPort }}
+    {{- end }}
+{{- end }}
+
+{{- if and
+      .Values.networkPolicy.ingress.enabled
+      .Values.networkPolicy.ingress.monitoring.enabled
+      .Values.worker.enabled
+}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.workerName" . }}-ingress
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gophprofile.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.monitoring.namespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.worker.containerPort }}
+{{- end }}
+
+{{- if and
+      .Values.networkPolicy.egress.enabled
+      (or .Values.server.enabled .Values.worker.enabled)
+}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gophprofile.fullname" . }}-app-egress
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - {{ include "gophprofile.name" . }}
+      - key: app.kubernetes.io/instance
+        operator: In
+        values:
+          - {{ .Release.Name }}
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          {{- if .Values.server.enabled }}
+          - server
+          {{- end }}
+          {{- if .Values.worker.enabled }}
+          - worker
+          {{- end }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.egress.dns.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.egress.dns.namespace | quote }}
+      ports:
+        - protocol: UDP
+          port: {{ .Values.networkPolicy.egress.dns.port }}
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.dns.port }}
+    {{- end }}
+
+    {{- if .Values.networkPolicy.egress.postgres.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: postgres
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.postgres.port }}
+    {{- end }}
+
+    {{- if .Values.networkPolicy.egress.rabbitmq.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: rabbitmq
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.rabbitmq.port }}
+    {{- end }}
+
+    {{- if .Values.networkPolicy.egress.minio.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gophprofile
+              app.kubernetes.io/instance: gophprofile
+              app.kubernetes.io/component: minio
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.minio.port }}
+    {{- end }}
+
+    {{- if .Values.networkPolicy.egress.observability.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.egress.observability.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.egress.observability.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.observability.port }}
+    {{- end }}
+{{- end }}
+
+{{- end }}

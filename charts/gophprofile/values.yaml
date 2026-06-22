@@ -193,8 +193,81 @@ serviceMonitor:
   additionalLabels: {}
 
 networkPolicy:
+  # По умолчанию выключено, потому что поддержка NetworkPolicy
+  # зависит от CNI-плагина конкретного Kubernetes-кластера.
   enabled: false
+
+  ingress:
+    enabled: true
+
+    ingressController:
+      enabled: true
+      namespace: kube-system
+      podSelector:
+        app.kubernetes.io/name: traefik
+
+    monitoring:
+      enabled: true
+      namespace: monitoring
+
+  egress:
+    enabled: true
+
+    dns:
+      enabled: true
+      namespace: kube-system
+      port: 53
+
+    postgres:
+      enabled: true
+      port: 5432
+
+    rabbitmq:
+      enabled: true
+      port: 5672
+
+    minio:
+      enabled: true
+      port: 9000
+
+    observability:
+      enabled: false
+      namespace: gophprofile
+      podSelector:
+        app.kubernetes.io/component: jaeger
+      port: 4318
 
 rbac:
   create: true
-  serviceAccountName: gophprofile-app
+
+  serviceAccountName: ""
+
+  automountServiceAccountToken: false
+
+  annotations: {}
+
+  rules: []
+
+securityContext:
+  pod:
+    enabled: true
+    settings:
+      runAsNonRoot: true
+      runAsUser: 10001
+      runAsGroup: 10001
+      fsGroup: 10001
+      seccompProfile:
+        type: RuntimeDefault
+
+  container:
+    enabled: true
+    settings:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+  tmpVolume:
+    enabled: true
+    mountPath: /tmp
