@@ -8,7 +8,9 @@ metadata:
     {{- include "gophprofile.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
+  {{- if not .Values.autoscaling.worker.enabled }}
   replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
   strategy:
     {{- toYaml .Values.worker.strategy | nindent 4 }}
   selector:

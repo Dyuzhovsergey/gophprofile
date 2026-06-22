@@ -100,5 +100,39 @@ envFrom:
       name: gophprofile-secret
 ```
 
-Worker использует те же ConfigMap и Secret, но имеет отдельное имя сервиса и metrics-порт `9091`.
+
+## Ingress, HPA и ServiceMonitor
+
+Дополнительные Kubernetes-ресурсы по умолчанию выключены.
+
+### Ingress
+
+```yaml
+ingress:
+  enabled: false
+  className: traefik
+  host: gophprofile.local
+```
+
+Включение:
+
+```bash
+helm template gophprofile charts/gophprofile \
+  --namespace gophprofile \
+  --set ingress.enabled=true
+```
+
+### HPA
+
+Server масштабируется по CPU и памяти, worker — по CPU.
+
+```yaml
+autoscaling:
+  server:
+    enabled: false
+  worker:
+    enabled: false
+```
+
+Когда HPA включён, поле `spec.replicas` в соответствующем Deployment не генерируется.
 

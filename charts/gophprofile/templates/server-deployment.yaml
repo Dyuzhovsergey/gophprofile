@@ -8,7 +8,9 @@ metadata:
     {{- include "gophprofile.labels" . | nindent 4 }}
     app.kubernetes.io/component: server
 spec:
+  {{- if not .Values.autoscaling.server.enabled }}
   replicas: {{ .Values.server.replicaCount }}
+  {{- end }}
   strategy:
     {{- toYaml .Values.server.strategy | nindent 4 }}
   selector:

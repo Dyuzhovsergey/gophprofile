@@ -154,7 +154,15 @@ secret:
 ingress:
   enabled: false
   className: traefik
+
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
   host: gophprofile.local
+  path: /
+  pathType: Prefix
+
+  tls: []
 
 autoscaling:
   server:
@@ -163,6 +171,7 @@ autoscaling:
     maxReplicas: 3
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
+
   worker:
     enabled: false
     minReplicas: 1
@@ -171,8 +180,17 @@ autoscaling:
 
 serviceMonitor:
   enabled: false
+
+  server:
+    enabled: true
+
+  worker:
+    enabled: true
+
   interval: 30s
   scrapeTimeout: 10s
+
+  additionalLabels: {}
 
 networkPolicy:
   enabled: false
