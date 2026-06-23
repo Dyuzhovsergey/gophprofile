@@ -18,7 +18,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Разрешаем входящий HTTP-трафик от ingress-controller.
+    # Разрешаем HTTP-трафик от ingress-controller Traefik.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -30,7 +30,7 @@ spec:
         - protocol: TCP
           port: 8080
 
-    # Разрешаем scraping метрик от Prometheus Operator,
+    # Разрешаем Prometheus собирать server metrics.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -38,3 +38,34 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gophprofile-worker-ingress
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gophprofile
+      app.kubernetes.io/instance: gophprofile
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    # Worker не принимает пользовательские запросы.
+    # Разрешаем только сбор health и metrics из monitoring namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9091

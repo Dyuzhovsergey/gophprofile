@@ -379,14 +379,14 @@ func handleAvatarDeletedDelivery(
 	)
 
 	workerStatus := observabilitymetrics.StatusSuccess
-	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarDeleted)
 
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
 
-		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
+		workerMetrics.FinishWorkerJob(eventTypeAvatarDeleted, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarDeletedEvent

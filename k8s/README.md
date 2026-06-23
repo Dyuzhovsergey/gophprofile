@@ -213,25 +213,25 @@ path: /metrics
 
 
 
-## NetworkPolicy для входящего трафика server
+## NetworkPolicy для входящего трафика server и worker
 
-Для ограничения входящего трафика к server Pod используется манифест:
+Для ограничения входящего трафика к server и worker используется манифест:
 
 ```text
 k8s/base/networkpolicy-ingress.yaml
 ```
+Он создаёт две политики:
 
-Политика выбирает server Pod по labels:
+gophprofile-server-ingress;
+gophprofile-worker-ingress.
 
-```yaml
-app.kubernetes.io/name: gophprofile
-app.kubernetes.io/instance: gophprofile
-app.kubernetes.io/component: server
-```
+Для server разрешён входящий трафик:
 
-Разрешён входящий трафик:
-- от ingress-controller Traefik из namespace `kube-system`;
-- от Prometheus из namespace `monitoring`, если позже будет установлен Prometheus Operator.
+от Traefik из namespace kube-system на порт 8080;
+от Prometheus из namespace monitoring на порт 8080.
+
+Для worker разрешён входящий трафик только от namespace monitoring
+на metrics-порт 9091.
 
 ## NetworkPolicy для исходящего трафика server и worker
 
@@ -896,6 +896,7 @@ NetworkPolicy реально ограничивает трафик только 
 ```bash
 kubectl delete networkpolicy \
   gophprofile-server-ingress \
+  gophprofile-worker-ingress \
   gophprofile-app-egress \
   -n gophprofile \
   --ignore-not-found

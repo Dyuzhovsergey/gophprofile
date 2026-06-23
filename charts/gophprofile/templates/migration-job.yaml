@@ -21,8 +21,7 @@ spec:
         app.kubernetes.io/component: migrations
         app.kubernetes.io/part-of: gophprofile
     spec:
-      serviceAccountName: {{ include "gophprofile.serviceAccountName" . }}
-      automountServiceAccountToken: {{ .Values.rbac.automountServiceAccountToken }}
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
 
       {{- if .Values.securityContext.pod.enabled }}
@@ -42,14 +41,15 @@ spec:
 
           env:
             - name: GOPHPROFILE_DATABASE_DSN
-{{ if .Values.secret.create }}
+              {{- if .Values.secret.create }}
               value: {{ required "secret.databaseDSN is required when secret.create=true and migration.enabled=true" .Values.secret.databaseDSN | quote }}
-{{ else }}
+              {{- else }}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "gophprofile.secretName" . }}
                   key: GOPHPROFILE_DATABASE_DSN
-{{ end }}
+              {{- end }}
+
             - name: GOPHPROFILE_MIGRATIONS_DIR
               value: {{ .Values.migration.migrationsDir | quote }}
 
