@@ -434,19 +434,34 @@ func (h *AvatarHandler) handleGetByIDError(
 	attrs ...slog.Attr,
 ) {
 	switch {
-	case errors.Is(err, domain.ErrAvatarNotFound), errors.Is(err, domain.ErrAvatarDeleted):
+	case isExternalDependencyUnavailable(err):
+		h.logUnexpectedError(
+			r,
+			"external dependency is temporarily unavailable",
+			operation,
+			err,
+			attrs...,
+		)
+
+		writeExternalDependencyUnavailable(w)
+
+	case errors.Is(err, domain.ErrAvatarNotFound),
+		errors.Is(err, domain.ErrAvatarDeleted):
 		writeJSONError(w, http.StatusNotFound, ErrorResponse{
 			Error: "Avatar not found",
 		})
+
 	case errors.Is(err, domain.ErrThumbnailNotFound):
 		writeJSONError(w, http.StatusNotFound, ErrorResponse{
 			Error: "Thumbnail not found",
 		})
+
 	case errors.Is(err, domain.ErrInvalidThumbnailSize):
 		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "Invalid thumbnail size",
 			Details: "Supported sizes: 100x100, 300x300",
 		})
+
 	default:
 		h.logUnexpectedError(
 			r,
@@ -487,21 +502,35 @@ func (h *AvatarHandler) handleUploadError(
 	userID string,
 ) {
 	switch {
+	case isExternalDependencyUnavailable(err):
+		h.logUnexpectedError(
+			r,
+			"external dependency is temporarily unavailable",
+			"http.upload_avatar",
+			err,
+			slog.String("user_id", userID),
+		)
+
+		writeExternalDependencyUnavailable(w)
+
 	case errors.Is(err, domain.ErrMissingUserID):
 		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "Missing user id",
 			Details: "Required header: X-User-ID",
 		})
+
 	case errors.Is(err, domain.ErrFileTooLarge):
 		writeJSONError(w, http.StatusRequestEntityTooLarge, ErrorResponse{
 			Error:   "File too large",
 			MaxSize: h.maxUploadSizeBytes,
 		})
+
 	case errors.Is(err, domain.ErrInvalidFile):
 		writeJSONError(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "Invalid file format",
 			Details: "Supported formats: jpeg, png, webp",
 		})
+
 	default:
 		h.logUnexpectedError(
 			r,

@@ -1398,7 +1398,7 @@ Worker базово масштабируется по CPU.
 ```text
 20 запросов в секунду
 burst до 40 запросов
-
+```
 Технические endpoints не ограничиваются:
 
 /live
@@ -1417,6 +1417,21 @@ GOPHPROFILE_RATE_LIMIT_BURST
 
 429 Too Many Requests
 Retry-After: 1
+
+### Circuit Breaker
+
+Для внешних зависимостей используются отдельные Circuit Breaker:
+
+- `s3` — server и worker;
+- `rabbitmq_publisher` — server/outbox dispatcher.
+
+Настройки:
+
+```text
+GOPHPROFILE_CIRCUIT_BREAKER_ENABLED
+GOPHPROFILE_CIRCUIT_BREAKER_FAILURE_THRESHOLD
+GOPHPROFILE_CIRCUIT_BREAKER_OPEN_TIMEOUT
+
 
 ## Graceful Shutdown
 

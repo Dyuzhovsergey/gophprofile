@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
+	"github.com/Dyuzhovsergey/gophprofile/internal/resilience/circuitbreaker"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
 )
@@ -90,6 +91,40 @@ func TestWebHandler_Upload_SuccessWithImageField(t *testing.T) {
 	location := rec.Header().Get("Location")
 	if location != "/web/gallery/sergey?uploaded=avatar-id" {
 		t.Fatalf("unexpected redirect location: got %q", location)
+	}
+}
+
+func TestWebHandler_Upload_CircuitBreakerOpen(
+	t *testing.T,
+) {
+	manager := &fakeWebAvatarManager{
+		uploadErr: circuitbreaker.ErrOpen,
+	}
+
+	handler := NewWebHandler(
+		manager,
+		services.DefaultMaxUploadSizeBytes,
+	)
+
+	req := newWebUploadRequest(
+		t,
+		"user_id",
+		"sergey",
+		"file",
+		"avatar.jpg",
+		"image/jpeg",
+		[]byte("data"),
+	)
+	rec := httptest.NewRecorder()
+
+	handler.Upload(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
 	}
 }
 

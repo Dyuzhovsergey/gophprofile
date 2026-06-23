@@ -15,6 +15,7 @@ import (
 
 	"github.com/Dyuzhovsergey/gophprofile/internal/domain"
 	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
+	"github.com/Dyuzhovsergey/gophprofile/internal/resilience/circuitbreaker"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	"github.com/go-chi/chi/v5"
 )
@@ -344,6 +345,55 @@ func TestAvatarHandler_Upload_InternalError(t *testing.T) {
 	}
 }
 
+func TestAvatarHandler_Upload_CircuitBreakerOpen(
+	t *testing.T,
+) {
+	uploader := &fakeAvatarUploader{
+		err: circuitbreaker.ErrOpen,
+	}
+
+	handler := NewAvatarHandler(
+		uploader,
+		services.DefaultMaxUploadSizeBytes,
+	)
+
+	req := newMultipartUploadRequest(
+		t,
+		"avatar.jpg",
+		"image/jpeg",
+		[]byte("data"),
+	)
+	req.Header.Set("X-User-ID", "sergey")
+
+	rec := httptest.NewRecorder()
+
+	wrappedHandler := middleware.RequireUserID(
+		http.HandlerFunc(handler.Upload),
+	)
+	wrappedHandler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
+	}
+
+	var response ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.Error != "Service unavailable" {
+		t.Fatalf(
+			"unexpected error: got %q, want %q",
+			response.Error,
+			"Service unavailable",
+		)
+	}
+}
+
 func newMultipartUploadRequest(
 	t *testing.T,
 	fileName string,
@@ -457,6 +507,42 @@ func TestAvatarHandler_GetByID_InternalError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("unexpected status code: got %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestAvatarHandler_GetByID_CircuitBreakerHalfOpenBusy(
+	t *testing.T,
+) {
+	uploader := &fakeAvatarUploader{
+		getByIDErr: circuitbreaker.ErrHalfOpenBusy,
+	}
+
+	handler := NewAvatarHandler(
+		uploader,
+		services.DefaultMaxUploadSizeBytes,
+	)
+
+	router := chi.NewRouter()
+	router.Get(
+		"/api/v1/avatars/{avatar_id}",
+		handler.GetByID,
+	)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/avatars/avatar-id",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"unexpected status code: got %d, want %d",
+			rec.Code,
+			http.StatusServiceUnavailable,
+		)
 	}
 }
 
