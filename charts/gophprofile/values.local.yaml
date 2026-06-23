@@ -90,9 +90,22 @@ autoscaling:
   worker:
     enabled: false
 
-# В текущем Rancher Desktop нет Prometheus Operator и CRD ServiceMonitor.
+# ServiceMonitor обрабатывается Prometheus Operator,
+# установленным release monitoring.
 serviceMonitor:
-  enabled: false
+  enabled: true
+
+  server:
+    enabled: true
+
+  worker:
+    enabled: true
+
+  interval: 30s
+  scrapeTimeout: 10s
+
+  additionalLabels:
+    release: monitoring
 
 # Включение зависит от поддержки NetworkPolicy текущим CNI-плагином.
 networkPolicy:

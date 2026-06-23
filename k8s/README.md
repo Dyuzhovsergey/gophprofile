@@ -908,42 +908,15 @@ kubectl delete networkpolicy \
 kubectl get pods -n gophprofile --show-labels
 ```
 
-### 14. ServiceMonitor
+### 14. Kubernetes monitoring и ServiceMonitor
 
-ServiceMonitor требует установленный Prometheus Operator и CRD:
+Для мониторинга Kubernetes используется отдельный Helm-релиз
+`kube-prometheus-stack`:
 
 ```text
-servicemonitors.monitoring.coreos.com
+release: monitoring
+namespace: monitoring
 ```
-
-Проверить CRD:
-
-```bash
-kubectl get crd servicemonitors.monitoring.coreos.com
-```
-
-Если CRD существует:
-
-```bash
-kubectl apply -f k8s/base/server-servicemonitor.yaml
-kubectl apply -f k8s/base/worker-servicemonitor.yaml
-```
-
-Проверка:
-
-```bash
-kubectl get servicemonitor -n gophprofile
-```
-
-Если CRD отсутствует, ServiceMonitor применять нельзя. Метрики приложения при этом продолжают работать и доступны через `port-forward`.
-
-Не следует выполнять одну общую команду:
-
-```bash
-kubectl apply -f k8s/base
-```
-
-пока в кластере отсутствует CRD ServiceMonitor.
 
 ### 15. Проверка через Ingress
 

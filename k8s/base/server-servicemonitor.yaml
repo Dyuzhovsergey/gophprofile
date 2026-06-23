@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/component: server
     app.kubernetes.io/part-of: gophprofile
     app.kubernetes.io/managed-by: kubectl
+    release: monitoring
 spec:
   selector:
     matchLabels:

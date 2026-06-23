@@ -136,7 +136,23 @@ autoscaling:
 
 Когда HPA включён, поле `spec.replicas` в соответствующем Deployment не генерируется.
 
+### ServiceMonitor
 
+ServiceMonitor включается только при установленном Prometheus Operator:
+
+```yaml
+serviceMonitor:
+  enabled: true
+
+  server:
+    enabled: true
+
+  worker:
+    enabled: true
+
+  additionalLabels:
+    release: monitoring
+```
 
 ## NetworkPolicy, RBAC и SecurityContext
 

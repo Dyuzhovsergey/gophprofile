@@ -1,0 +1,97 @@
+# Локальная конфигурация kube-prometheus-stack
+# для Rancher Desktop.
+#
+# Monitoring устанавливается отдельным Helm-релизом:
+#
+# release:   monitoring
+# namespace: monitoring
+
+crds:
+  enabled: true
+
+# Alertmanager уже настроен в Docker Compose.
+# Для локальной Kubernetes-проверки он не обязателен
+# и отключён для экономии ресурсов.
+alertmanager:
+  enabled: false
+
+grafana:
+  enabled: true
+
+  # Включает встроенные Kubernetes dashboards.
+  defaultDashboardsEnabled: true
+  defaultDashboardsTimezone: browser
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
+
+prometheusOperator:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 100Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    # Для локального учебного кластера достаточно
+    # хранить метрики в течение суток.
+    retention: 24h
+
+    # Prometheus выбирает ServiceMonitor с меткой:
+    #
+    # release: monitoring
+    serviceMonitorSelector:
+      matchLabels:
+        release: monitoring
+
+    # Не подставляем автоматически selector Helm-релиза:
+    # выше selector указан явно.
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+    # Разрешаем находить ServiceMonitor
+    # во всех namespaces, включая gophprofile.
+    serviceMonitorNamespaceSelector: {}
+
+    resources:
+      requests:
+        cpu: 150m
+        memory: 384Mi
+      limits:
+        cpu: 750m
+        memory: 1Gi
+
+# Нужен для метрик состояния Kubernetes-объектов:
+# Deployment, Pod, Namespace, ReplicaSet и других.
+kube-state-metrics:
+  enabled: true
+
+# Нужен для метрик узла: CPU, память, filesystem.
+prometheus-node-exporter:
+  enabled: true
+
+# Эти endpoints в Rancher Desktop могут быть
+# недоступны для внешнего сбора.
+# Отключаем их, чтобы не получать ложные DOWN targets.
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeEtcd:
+  enabled: false
+
+kubeProxy:
+  enabled: false

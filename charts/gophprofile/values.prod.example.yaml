@@ -121,7 +121,7 @@ serviceMonitor:
   scrapeTimeout: 10s
 
   additionalLabels:
-    release: kube-prometheus-stack
+    release: monitoring
 
 
 networkPolicy:
