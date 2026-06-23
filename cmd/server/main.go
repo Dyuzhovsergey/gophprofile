@@ -21,6 +21,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/outbox"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
+	"github.com/Dyuzhovsergey/gophprofile/internal/resilience/circuitbreaker"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 )
 
@@ -98,7 +99,7 @@ func main() {
 	avatarRepository := postgres.NewAvatarRepository(db)
 	outboxRepository := postgres.NewOutboxRepository(db)
 
-	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
+	rawAvatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
 		log.LogAttrs(
 			ctx,
@@ -114,7 +115,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	avatarEventPublisher, err := rabbitmq.NewPublisher(cfg.RabbitMQ)
+	s3CircuitBreaker := circuitbreaker.New(
+		"s3",
+		circuitbreaker.Config{
+			Enabled:          cfg.CircuitBreaker.Enabled,
+			FailureThreshold: cfg.CircuitBreaker.FailureThreshold,
+			OpenTimeout:      cfg.CircuitBreaker.OpenTimeout,
+		},
+		log,
+	)
+
+	avatarStorage := s3storage.NewResilientClient(
+		rawAvatarStorage,
+		s3CircuitBreaker,
+	)
+
+	rawAvatarEventPublisher, err := rabbitmq.NewPublisher(
+		cfg.RabbitMQ,
+	)
 	if err != nil {
 		log.LogAttrs(
 			ctx,
@@ -129,13 +147,52 @@ func main() {
 		)
 		os.Exit(1)
 	}
+
+	rabbitMQCircuitBreaker := circuitbreaker.New(
+		"rabbitmq_publisher",
+		circuitbreaker.Config{
+			Enabled:          cfg.CircuitBreaker.Enabled,
+			FailureThreshold: cfg.CircuitBreaker.FailureThreshold,
+			OpenTimeout:      cfg.CircuitBreaker.OpenTimeout,
+		},
+		log,
+	)
+
+	avatarEventPublisher := rabbitmq.NewResilientPublisher(
+		rawAvatarEventPublisher,
+		rabbitMQCircuitBreaker,
+	)
+
 	defer func() {
 		if err := avatarEventPublisher.Close(); err != nil {
-			log.Error("failed to close rabbitmq publisher", logger.Err(err))
+			log.Error(
+				"failed to close rabbitmq publisher",
+				logger.Err(err),
+			)
 		}
 	}()
 
 	log.Info("rabbitmq publisher created")
+
+	log.Info(
+		"circuit breakers initialized",
+		slog.Bool(
+			"enabled",
+			cfg.CircuitBreaker.Enabled,
+		),
+		slog.Uint64(
+			"failure_threshold",
+			uint64(cfg.CircuitBreaker.FailureThreshold),
+		),
+		slog.Duration(
+			"open_timeout",
+			cfg.CircuitBreaker.OpenTimeout,
+		),
+		slog.String(
+			"dependencies",
+			"s3,rabbitmq_publisher",
+		),
+	)
 
 	outboxDispatcher := outbox.NewDispatcher(
 		outboxRepository,

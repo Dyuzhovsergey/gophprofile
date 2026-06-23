@@ -20,6 +20,7 @@ import (
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
+	"github.com/Dyuzhovsergey/gophprofile/internal/resilience/circuitbreaker"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	avatarworker "github.com/Dyuzhovsergey/gophprofile/internal/worker"
 )
@@ -125,7 +126,7 @@ func main() {
 
 	avatarRepository := postgres.NewAvatarRepository(db)
 
-	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
+	rawAvatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
 		log.LogAttrs(
 			ctx,
@@ -141,9 +142,41 @@ func main() {
 		os.Exit(1)
 	}
 
+	s3CircuitBreaker := circuitbreaker.New(
+		"s3",
+		circuitbreaker.Config{
+			Enabled:          cfg.CircuitBreaker.Enabled,
+			FailureThreshold: cfg.CircuitBreaker.FailureThreshold,
+			OpenTimeout:      cfg.CircuitBreaker.OpenTimeout,
+		},
+		log,
+	)
+
+	avatarStorage := s3storage.NewResilientClient(
+		rawAvatarStorage,
+		s3CircuitBreaker,
+	)
+
 	imageService := services.NewImageService()
 
 	log.Info("s3 storage client created")
+
+	log.Info(
+		"circuit breaker initialized",
+		slog.Bool(
+			"enabled",
+			cfg.CircuitBreaker.Enabled,
+		),
+		slog.Uint64(
+			"failure_threshold",
+			uint64(cfg.CircuitBreaker.FailureThreshold),
+		),
+		slog.Duration(
+			"open_timeout",
+			cfg.CircuitBreaker.OpenTimeout,
+		),
+		slog.String("dependency", "s3"),
+	)
 
 	consumer, err := rabbitmq.NewConsumer(cfg.RabbitMQ)
 	if err != nil {
