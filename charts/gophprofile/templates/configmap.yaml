@@ -17,6 +17,10 @@ data:
   GOPHPROFILE_RATE_LIMIT_REQUESTS_PER_SECOND: {{ .Values.config.rateLimitRequestsPerSecond | quote }}
   GOPHPROFILE_RATE_LIMIT_BURST: {{ .Values.config.rateLimitBurst | quote }}
 
+  GOPHPROFILE_CIRCUIT_BREAKER_ENABLED: {{ .Values.config.circuitBreakerEnabled | quote }}
+  GOPHPROFILE_CIRCUIT_BREAKER_FAILURE_THRESHOLD: {{ .Values.config.circuitBreakerFailureThreshold | quote }}
+  GOPHPROFILE_CIRCUIT_BREAKER_OPEN_TIMEOUT: {{ .Values.config.circuitBreakerOpenTimeout | quote }}  
+
   GOPHPROFILE_S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
   GOPHPROFILE_S3_REGION: {{ .Values.config.s3Region | quote }}
   GOPHPROFILE_S3_BUCKET: {{ .Values.config.s3Bucket | quote }}

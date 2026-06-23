@@ -45,6 +45,10 @@ config:
   rateLimitRequestsPerSecond: "20"
   rateLimitBurst: "40"
 
+  circuitBreakerEnabled: "true"
+  circuitBreakerFailureThreshold: "5"
+  circuitBreakerOpenTimeout: "30s"
+
   s3Endpoint: "https://s3.example.com"
   s3Region: "eu-central-1"
   s3Bucket: "gophprofile-avatars"

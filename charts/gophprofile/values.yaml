@@ -130,6 +130,10 @@ config:
   rateLimitRequestsPerSecond: "20"
   rateLimitBurst: "40"
 
+  circuitBreakerEnabled: "true"
+  circuitBreakerFailureThreshold: "5"
+  circuitBreakerOpenTimeout: "30s"
+
   s3Endpoint: "http://gophprofile-minio:9000"
   s3Region: "us-east-1"
   s3Bucket: "avatars"
