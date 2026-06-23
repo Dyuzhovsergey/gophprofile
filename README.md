@@ -1308,6 +1308,7 @@ JSON-логи содержат:
 ```mermaid
 flowchart TB
     Helm["Helm Chart<br/>charts/gophprofile"]
+    BaseManifests["Обычные манифесты<br/>k8s/base"]
 
     Config["ConfigMap"]
     Secret["Secret"]
@@ -1331,10 +1332,11 @@ flowchart TB
     Helm --> Ingress
     Helm --> Migration
     Helm --> HPA
-    Helm --> PDB
     Helm --> ServiceMonitor
     Helm --> NetworkPolicy
     Helm --> RBAC
+
+    BaseManifests --> PDB
 
     SecurityContext -.-> Server
     SecurityContext -.-> Worker
