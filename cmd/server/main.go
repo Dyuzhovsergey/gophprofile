@@ -14,6 +14,7 @@ import (
 	"github.com/Dyuzhovsergey/gophprofile/internal/config"
 	"github.com/Dyuzhovsergey/gophprofile/internal/handlers"
 	"github.com/Dyuzhovsergey/gophprofile/internal/logger"
+	"github.com/Dyuzhovsergey/gophprofile/internal/middleware"
 	observabilitylogging "github.com/Dyuzhovsergey/gophprofile/internal/observability/logging"
 	observabilitymetrics "github.com/Dyuzhovsergey/gophprofile/internal/observability/metrics"
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
@@ -173,12 +174,29 @@ func main() {
 		avatarEventPublisher,
 	)
 
+	rateLimiter := middleware.NewRateLimiter(
+		cfg.RateLimit.Enabled,
+		cfg.RateLimit.RequestsPerSecond,
+		cfg.RateLimit.Burst,
+	)
+
+	log.Info(
+		"HTTP rate limiter initialized",
+		slog.Bool("enabled", cfg.RateLimit.Enabled),
+		slog.Float64(
+			"requests_per_second",
+			cfg.RateLimit.RequestsPerSecond,
+		),
+		slog.Int("burst", cfg.RateLimit.Burst),
+	)
+
 	router := handlers.NewRouter(
 		log,
 		healthHandler,
 		avatarHandler,
 		webHandler,
 		appMetrics,
+		rateLimiter,
 	)
 
 	server := &http.Server{

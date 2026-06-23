@@ -13,6 +13,10 @@ data:
   GOPHPROFILE_WORKER_METRICS_ADDRESS: {{ .Values.config.workerMetricsAddress | quote }}
   GOPHPROFILE_MAX_UPLOAD_SIZE_BYTES: {{ .Values.config.maxUploadSizeBytes | quote }}
 
+  GOPHPROFILE_RATE_LIMIT_ENABLED: {{ .Values.config.rateLimitEnabled | quote }}
+  GOPHPROFILE_RATE_LIMIT_REQUESTS_PER_SECOND: {{ .Values.config.rateLimitRequestsPerSecond | quote }}
+  GOPHPROFILE_RATE_LIMIT_BURST: {{ .Values.config.rateLimitBurst | quote }}
+
   GOPHPROFILE_S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
   GOPHPROFILE_S3_REGION: {{ .Values.config.s3Region | quote }}
   GOPHPROFILE_S3_BUCKET: {{ .Values.config.s3Bucket | quote }}

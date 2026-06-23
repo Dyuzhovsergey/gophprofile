@@ -1389,6 +1389,35 @@ Worker базово масштабируется по CPU.
 - writable `emptyDir` только для `/tmp`;
 - NetworkPolicy для ограничения входящего и исходящего трафика.
 
+### Rate Limiting
+
+Пользовательские HTTP-маршруты защищены ограничителем Token Bucket.
+
+По умолчанию для каждого server Pod используются:
+
+```text
+20 запросов в секунду
+burst до 40 запросов
+
+Технические endpoints не ограничиваются:
+
+/live
+/ready
+/health
+/metrics
+/web/static/*
+
+Конфигурация:
+
+GOPHPROFILE_RATE_LIMIT_ENABLED
+GOPHPROFILE_RATE_LIMIT_REQUESTS_PER_SECOND
+GOPHPROFILE_RATE_LIMIT_BURST
+
+При превышении лимита server возвращает:
+
+429 Too Many Requests
+Retry-After: 1
+
 ## Graceful Shutdown
 
 При остановке Pod Kubernetes отправляет процессу `SIGTERM`.

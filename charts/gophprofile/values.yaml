@@ -126,6 +126,10 @@ config:
   workerMetricsAddress: ":9091"
   maxUploadSizeBytes: "10485760"
 
+  rateLimitEnabled: "true"
+  rateLimitRequestsPerSecond: "20"
+  rateLimitBurst: "40"
+
   s3Endpoint: "http://gophprofile-minio:9000"
   s3Region: "us-east-1"
   s3Bucket: "avatars"

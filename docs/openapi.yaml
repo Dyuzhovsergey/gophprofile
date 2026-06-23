@@ -69,6 +69,9 @@ paths:
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
 
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -128,6 +131,9 @@ paths:
         "404":
           $ref: "#/components/responses/AvatarNotFound"
 
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -150,6 +156,9 @@ paths:
 
         "404":
           $ref: "#/components/responses/AvatarNotFound"
+
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
         "500":
           $ref: "#/components/responses/InternalServerError"
@@ -176,6 +185,9 @@ paths:
 
         "404":
           $ref: "#/components/responses/AvatarNotFound"
+
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
         "500":
           $ref: "#/components/responses/InternalServerError"
@@ -219,6 +231,9 @@ paths:
         "404":
           $ref: "#/components/responses/AvatarNotFound"
 
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -242,6 +257,9 @@ paths:
         "404":
           $ref: "#/components/responses/AvatarNotFound"
 
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -264,6 +282,9 @@ paths:
 
         "400":
           $ref: "#/components/responses/BadRequest"
+
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
         "500":
           $ref: "#/components/responses/InternalServerError"
@@ -334,9 +355,9 @@ paths:
               schema:
                 type: string
               example: |
-                # HELP http_requests_total Total number of HTTP requests.
-                # TYPE http_requests_total counter
-                http_requests_total{method="GET",route="/health",status="200"} 1
+                # HELP gophprofile_http_requests_total Total number of HTTP requests.
+                # TYPE gophprofile_http_requests_total counter
+                gophprofile_http_requests_total{method="GET",route="/health",status="200"} 1
 
 components:
   securitySchemes:
@@ -552,6 +573,21 @@ components:
           schema:
             type: string
           example: missing X-User-ID header
+
+    TooManyRequests:
+      description: Превышен допустимый лимит HTTP-запросов
+      headers:
+        Retry-After:
+          description: Через сколько секунд рекомендуется повторить запрос
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: rate limit exceeded
 
     PayloadTooLarge:
       description: Размер файла превышает допустимый предел
