@@ -160,12 +160,13 @@ maxReplicas: 3.
 k8s/base/worker-hpa.yaml
 ```
 
-Он масштабирует Deployment gophprofile-server по CPU:
+Он масштабирует Deployment gophprofile-worker по CPU и memory:
 Текущая dev-стратегия:
 
 minReplicas: 1;
 maxReplicas: 3;
 CPU target utilization: 70%.
+memory target utilization: 80%.
 
 
 ## ServiceMonitor для server metrics
