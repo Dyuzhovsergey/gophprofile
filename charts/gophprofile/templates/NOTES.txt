@@ -19,11 +19,19 @@ AppVersion: {{ .Chart.AppVersion }}
 
 2. Проверить ресурсы Kubernetes:
 
-   kubectl get pods,svc,ingress,hpa -n {{ $namespace }} \
+   kubectl get pods,svc,hpa -n {{ $namespace }} \
      -l app.kubernetes.io/instance={{ .Release.Name }}
 
    kubectl get events -n {{ $namespace }} \
      --sort-by=.lastTimestamp | tail -30
+
+{{ if and .Values.ingress.enabled (eq .Values.ingress.className "traefik") }}
+   kubectl get ingressroute,middleware \
+     -n {{ $namespace }}
+{{ else if .Values.ingress.enabled }}
+   kubectl get ingress \
+     -n {{ $namespace }}
+{{ end }}     
 
 {{ if .Values.migration.enabled }}
 3. Миграции PostgreSQL включены.

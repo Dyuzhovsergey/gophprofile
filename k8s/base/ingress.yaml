@@ -1,5 +1,20 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gophprofile-upload-body-limit
+  namespace: gophprofile
+  labels:
+    app.kubernetes.io/name: gophprofile
+    app.kubernetes.io/instance: gophprofile
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: gophprofile
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  buffering:
+    maxRequestBodyBytes: 10485760
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
 metadata:
   name: gophprofile-server
   namespace: gophprofile
@@ -9,18 +24,14 @@ metadata:
     app.kubernetes.io/component: ingress
     app.kubernetes.io/part-of: gophprofile
     app.kubernetes.io/managed-by: kubectl
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 spec:
-  ingressClassName: traefik
-  rules:
-    - host: gophprofile.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: gophprofile-server
-                port:
-                  name: http
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: "Host(`gophprofile.local`) && PathPrefix(`/`)"
+      middlewares:
+        - name: gophprofile-upload-body-limit
+      services:
+        - name: gophprofile-server
+          port: 80

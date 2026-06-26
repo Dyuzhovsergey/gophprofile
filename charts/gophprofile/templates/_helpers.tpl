@@ -90,3 +90,10 @@ Secret может быть создан Helm Chart-ом или существо�
 {{- define "gophprofile.migrationName" -}}
 {{- printf "%s-migrations" (include "gophprofile.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+{{/*
+Возвращает имя Traefik Middleware,
+ограничивающего размер тела HTTP-запроса.
+*/}}
+{{- define "gophprofile.uploadBodyLimitMiddlewareName" -}}
+{{- printf "%s-upload-body-limit" (include "gophprofile.serverName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}

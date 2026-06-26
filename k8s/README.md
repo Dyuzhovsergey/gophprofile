@@ -106,16 +106,30 @@ gophprofile-worker   local
 
 ## Ingress
 
-Для внешнего HTTP-доступа используется Kubernetes Ingress:
+## Traefik IngressRoute и ограничение размера запроса
+
+Для внешнего HTTP-доступа в локальном Kubernetes используется Traefik:
 
 ```text
 k8s/base/ingress.yaml
 ```
+Манифест создаёт два Traefik CRD-ресурса:
+
+Middleware — ограничивает размер тела HTTP-запроса;
+IngressRoute — направляет запросы в gophprofile-server.
+
+Максимальный размер request body:
+
+10485760 байт = 10 MiB
+
+Маршрут:
+
+Host: gophprofile.local
+PathPrefix: /
 
 Локальный host:
 
 gophprofile.local
-
 
 ## Liveness и readiness probes
 
@@ -809,8 +823,16 @@ kubectl apply -f k8s/base/ingress.yaml
 Проверка:
 
 ```bash
-kubectl get ingress -n gophprofile
-kubectl describe ingress gophprofile-server -n gophprofile
+kubectl get middleware,ingressroute \
+  -n gophprofile
+
+kubectl describe middleware \
+  gophprofile-upload-body-limit \
+  -n gophprofile
+
+kubectl describe ingressroute \
+  gophprofile-server \
+  -n gophprofile
 ```
 
 Добавить локальный host, если его ещё нет:
@@ -1049,7 +1071,9 @@ kubectl get all -n gophprofile
 Дополнительные ресурсы:
 
 ```bash
-kubectl get ingress,hpa,pdb,networkpolicy -n gophprofile
+kubectl get \
+  ingressroute,middleware,hpa,pdb,networkpolicy \
+  -n gophprofile
 ```
 
 PVC:

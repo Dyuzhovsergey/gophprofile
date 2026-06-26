@@ -188,12 +188,19 @@ ingress:
   enabled: false
   className: traefik
 
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  annotations: {}
 
   host: gophprofile.local
   path: /
   pathType: Prefix
+
+  traefik:
+    entryPoints:
+      - web
+
+    buffering:
+      enabled: true
+      maxRequestBodyBytes: 10485760
 
   tls: []
 
@@ -227,8 +234,6 @@ serviceMonitor:
   additionalLabels: {}
 
 networkPolicy:
-  # По умолчанию выключено, потому что поддержка NetworkPolicy
-  # зависит от CNI-плагина конкретного Kubernetes-кластера.
   enabled: false
 
   ingress:
