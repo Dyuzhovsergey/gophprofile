@@ -121,6 +121,15 @@ goose migration;
 server;
 worker.
 
+### Конфигурация
+
+Server и worker получают переменные окружения из локального файла `.env`.
+
+Создать его из шаблона:
+
+```bash
+cp .env.example .env
+
 ### Запуск:
 ``` bash
 docker compose up --build -d

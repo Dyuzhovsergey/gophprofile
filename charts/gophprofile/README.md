@@ -107,6 +107,25 @@ envFrom:
 
 ### Ingress
 
+При `className: traefik` Chart создаёт:
+
+- Traefik `Middleware` с `buffering.maxRequestBodyBytes`;
+- Traefik `IngressRoute`, который подключает этот Middleware.
+
+Настройки:
+
+```yaml
+ingress:
+  className: traefik
+
+  traefik:
+    entryPoints:
+      - web
+
+    buffering:
+      enabled: true
+      maxRequestBodyBytes: 10485760
+
 ```yaml
 ingress:
   enabled: false
