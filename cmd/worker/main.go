@@ -76,8 +76,8 @@ func main() {
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", appMetrics.Handler())
-	metricsMux.HandleFunc("/live", handleWorkerProbe)
-	metricsMux.HandleFunc("/ready", handleWorkerProbe)
+	metricsMux.HandleFunc("/live", handleWorkerProbe(log))
+	metricsMux.HandleFunc("/ready", handleWorkerProbe(log))
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -282,17 +282,21 @@ type workerProbeResponse struct {
 	Details map[string]string `json:"details"`
 }
 
-// handleWorkerProbe обрабатывает liveness/readiness probe worker-а.
-func handleWorkerProbe(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+// handleWorkerProbe возвращает обработчик liveness/readiness probe worker-а.
+func handleWorkerProbe(log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(w).Encode(workerProbeResponse{
-		Status: "ok",
-		Details: map[string]string{
-			"worker": "ok",
-		},
-	}); err != nil {
-		http.Error(w, "failed to encode worker probe response", http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(workerProbeResponse{
+			Status: "ok",
+			Details: map[string]string{
+				"worker": "ok",
+			},
+		}); err != nil {
+			log.Error(
+				"failed to encode worker probe response",
+				logger.Err(err),
+			)
+		}
 	}
 }

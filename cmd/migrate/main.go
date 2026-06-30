@@ -30,7 +30,11 @@ func main() {
 
 // run подключается к PostgreSQL и применяет все новые миграции.
 func run() error {
-	dsn := os.Getenv("GOPHPROFILE_DATABASE_DSN")
+	dsn, exists := os.LookupEnv("GOPHPROFILE_DATABASE_DSN")
+	if !exists {
+		return errors.New("GOPHPROFILE_DATABASE_DSN is not set")
+	}
+
 	if dsn == "" {
 		return errors.New("GOPHPROFILE_DATABASE_DSN is empty")
 	}

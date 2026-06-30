@@ -548,11 +548,14 @@ metadata:
   namespace: gophprofile
 type: Opaque
 stringData:
-  GOPHPROFILE_DATABASE_DSN: "postgres://gophprofile:gophprofile@gophprofile-postgres:5432/gophprofile?sslmode=disable"
-  GOPHPROFILE_S3_ACCESS_KEY: "minioadmin"
-  GOPHPROFILE_S3_SECRET_KEY: "minioadmin"
-  GOPHPROFILE_RABBITMQ_URL: "amqp://gophprofile:gophprofile@gophprofile-rabbitmq:5672/"
+  GOPHPROFILE_DATABASE_DSN: "<YOUR_DATABASE_DSN>"
+  GOPHPROFILE_S3_ACCESS_KEY: "<YOUR_S3_ACCESS_KEY>"
+  GOPHPROFILE_S3_SECRET_KEY: "<YOUR_S3_SECRET_KEY>"
+  GOPHPROFILE_RABBITMQ_URL: "<YOUR_RABBITMQ_URL>"
 ```
+Перед применением манифеста необходимо заменить все placeholders
+на реальные значения для конкретного окружения.
+
 
 Применить Secret:
 
