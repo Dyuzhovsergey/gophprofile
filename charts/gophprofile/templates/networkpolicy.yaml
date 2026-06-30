@@ -133,8 +133,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: gophprofile
-              app.kubernetes.io/instance: gophprofile
+              {{- include "gophprofile.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: postgres
       ports:
         - protocol: TCP
@@ -145,8 +144,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: gophprofile
-              app.kubernetes.io/instance: gophprofile
+              {{- include "gophprofile.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: rabbitmq
       ports:
         - protocol: TCP
@@ -157,8 +155,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: gophprofile
-              app.kubernetes.io/instance: gophprofile
+              {{- include "gophprofile.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: minio
       ports:
         - protocol: TCP
