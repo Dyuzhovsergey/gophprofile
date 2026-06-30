@@ -189,6 +189,7 @@ flowchart TB
 
     SecurityContext -.-> Server
     SecurityContext -.-> Worker
+    SecurityContext -.-> Migration
 
     HPA -.->|"изменяет replicas"| Server
     HPA -.->|"изменяет replicas"| Worker
@@ -242,6 +243,19 @@ Worker базово масштабируется по CPU.
 - `RuntimeDefault` seccomp profile;
 - writable `emptyDir` только для `/tmp`;
 - NetworkPolicy для ограничения входящего и исходящего трафика.
+
+Migration Job не использует прикладной ServiceAccount и не требует
+доступа к Kubernetes API, но применяет те же основные ограничения
+контейнера:
+
+- `automountServiceAccountToken: false`;
+- `runAsNonRoot: true`;
+- фиксированные UID и GID `10001`;
+- `allowPrivilegeEscalation: false`;
+- удаление всех Linux capabilities;
+- `readOnlyRootFilesystem: true`;
+- `RuntimeDefault` seccomp profile;
+- writable `emptyDir` только для `/tmp`.
 
 ## Graceful Shutdown
 

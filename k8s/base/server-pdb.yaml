@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/part-of: gophprofile
     app.kubernetes.io/managed-by: kubectl
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: gophprofile

@@ -285,9 +285,9 @@ gophprofile-app
 k8s/base/rbac.yaml
 ```
 
-## SecurityContext для server и worker
+## SecurityContext для server, worker и Migration Job
 
-Для server и worker настроены Pod-level и container-level securityContext.
+Для server, worker и Migration Job настроены Pod-level и container-level securityContext.
 
 Pod-level настройки:
 
@@ -300,6 +300,17 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 ```
+
+Обычный Migration Job использует те же ограничения безопасности,
+что и Helm-шаблон миграций:
+
+- запускается с UID и GID `10001`;
+- не запускается от root;
+- не получает Kubernetes API token;
+- не может повышать привилегии;
+- не имеет дополнительных Linux capabilities;
+- использует read-only root filesystem;
+- получает отдельный writable volume `/tmp`.
 
 Container-level настройки:
 
@@ -334,13 +345,17 @@ k8s/base/server-pdb.yaml
 k8s/base/worker-pdb.yaml
 ```
 
+
 Для server и worker используется PDB:
 
 ```yaml
-minAvailable: 1
+maxUnavailable: 1
 ```
+Это означает, что во время дсбои в работе Kubernetes
+может остановить не более одного Pod выбранного компонента одновременно.
 
-Это означает, что при добровольных disruptions Kubernetes должен сохранить минимум один доступный Pod выбранного компонента.
+При одной реплике PDB не блокирует обслуживание узла.
+При нескольких репликах остальные Pod продолжают обслуживать нагрузку.
 
 В Deployment-ах настроена стратегия обновления:
 
@@ -890,7 +905,11 @@ kubectl apply -f k8s/base/worker-pdb.yaml
 kubectl get pdb -n gophprofile
 ```
 
-При одной реплике значение `ALLOWED DISRUPTIONS` может быть равно `0`. Это ожидаемо для `minAvailable: 1`.
+При одной готовой реплике значение `ALLOWED DISRUPTIONS`
+обычно равно `1`, потому что PDB использует `maxUnavailable: 1`.
+
+Это позволяет выполнить voluntary disruption и не блокирует
+обслуживание узла при минимальном количестве реплик.
 
 ### 13. NetworkPolicy
 

@@ -20,19 +20,43 @@ spec:
         app.kubernetes.io/component: migrations
         app.kubernetes.io/part-of: gophprofile
     spec:
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: migrate
           image: docker.io/library/gophprofile-migrate:local
           imagePullPolicy: Never
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
           env:
             - name: GOPHPROFILE_DATABASE_DSN
               valueFrom:
                 secretKeyRef:
                   name: gophprofile-secret
                   key: GOPHPROFILE_DATABASE_DSN
+
             - name: GOPHPROFILE_MIGRATIONS_DIR
               value: "/app/migrations"
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
           resources:
             requests:
               cpu: "50m"
@@ -40,3 +64,7 @@ spec:
             limits:
               cpu: "300m"
               memory: "256Mi"
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
