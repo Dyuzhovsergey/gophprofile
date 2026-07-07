@@ -40,6 +40,26 @@ type HealthResponse struct {
 	Details map[string]string `json:"details"`
 }
 
+// Live обрабатывает liveness probe и проверяет только сам HTTP-процесс.
+func (h *HealthHandler) Live(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(HealthResponse{
+		Status: "ok",
+		Details: map[string]string{
+			"server": "ok",
+		},
+	}); err != nil {
+		http.Error(w, "failed to encode liveness response", http.StatusInternalServerError)
+	}
+}
+
+// Ready обрабатывает readiness probe и проверяет готовность зависимостей.
+func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+	h.Handle(w, r)
+}
+
 // Handle обрабатывает запрос проверки работоспособности сервиса.
 func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

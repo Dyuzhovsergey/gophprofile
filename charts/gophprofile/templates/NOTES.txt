@@ -1,0 +1,186 @@
+{{- $namespace := include "gophprofile.namespace" . -}}
+{{- $serverName := include "gophprofile.serverName" . -}}
+{{- $workerName := include "gophprofile.workerName" . -}}
+{{- $migrationName := include "gophprofile.migrationName" . -}}
+{{- $ingressPath := trimSuffix "/" .Values.ingress.path -}}
+
+GophProfile установлен.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ $namespace }}
+Chart:      {{ .Chart.Name }}-{{ .Chart.Version }}
+AppVersion: {{ .Chart.AppVersion }}
+
+1. Проверить состояние Helm-релиза:
+
+   helm status {{ .Release.Name }} -n {{ $namespace }}
+
+   helm get values {{ .Release.Name }} -n {{ $namespace }}
+
+2. Проверить ресурсы Kubernetes:
+
+   kubectl get pods,svc,ingress,hpa -n {{ $namespace }} \
+     -l app.kubernetes.io/instance={{ .Release.Name }}
+
+   kubectl get events -n {{ $namespace }} \
+     --sort-by=.lastTimestamp | tail -30
+
+{{ if .Values.migration.enabled }}
+3. Миграции PostgreSQL включены.
+
+   Миграции запускаются как Helm hook:
+
+   pre-install,pre-upgrade
+
+   Посмотреть описание hook-а:
+
+   helm get hooks {{ .Release.Name }} -n {{ $namespace }}
+
+   Успешно выполненный Job удаляется согласно hook-delete-policy.
+   Если миграции завершились ошибкой, проверить:
+
+   kubectl get jobs -n {{ $namespace }}
+
+   kubectl logs job/{{ $migrationName }} \
+     -n {{ $namespace }}
+{{ end }}
+
+{{ if not .Values.secret.create }}
+4. Chart использует существующий Kubernetes Secret:
+
+   {{ include "gophprofile.secretName" . }}
+
+   Проверить его наличие:
+
+   kubectl get secret {{ include "gophprofile.secretName" . }} \
+     -n {{ $namespace }}
+{{ else }}
+4. Kubernetes Secret создан Helm Chart-ом:
+
+   {{ include "gophprofile.secretName" . }}
+
+   Проверить:
+
+   kubectl get secret {{ include "gophprofile.secretName" . }} \
+     -n {{ $namespace }}
+{{ end }}
+
+{{ if and .Values.server.enabled .Values.ingress.enabled }}
+5. Доступ к GophProfile через Ingress:
+
+   {{- if .Values.ingress.tls }}
+   https://{{ .Values.ingress.host }}{{ $ingressPath }}
+   {{- else }}
+   http://{{ .Values.ingress.host }}{{ $ingressPath }}
+   {{- end }}
+
+{{ if hasSuffix ".local" .Values.ingress.host }}
+   Для локального Rancher Desktop проверь запись в /etc/hosts:
+
+   127.0.0.1 {{ .Values.ingress.host }}
+{{ end }}
+
+   Проверка server:
+
+   curl -i {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ $ingressPath }}/live
+
+   curl -i {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ $ingressPath }}/ready
+
+   curl -i {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ $ingressPath }}/health
+
+   curl -i {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ $ingressPath }}/metrics
+
+   Web-интерфейс:
+
+   {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}{{ $ingressPath }}/web/upload
+{{ else if .Values.server.enabled }}
+5. Ingress выключен. Для локальной проверки server используй port-forward:
+
+   kubectl port-forward svc/{{ $serverName }} \
+     8080:{{ .Values.server.service.httpPort }} \
+     -n {{ $namespace }}
+
+   Затем в другом терминале:
+
+   curl -i http://localhost:8080/live
+
+   curl -i http://localhost:8080/ready
+
+   curl -i http://localhost:8080/health
+
+   curl -i http://localhost:8080/metrics
+
+   Web-интерфейс:
+
+   http://localhost:8080/web/upload
+{{ end }}
+
+{{ if .Values.worker.enabled }}
+6. Проверить worker:
+
+   kubectl logs \
+     -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=worker \
+     -n {{ $namespace }} \
+     --tail=100
+
+   Проверить health и metrics worker-а:
+
+   kubectl port-forward svc/{{ $workerName }} \
+     9091:{{ .Values.worker.service.metricsPort }} \
+     -n {{ $namespace }}
+
+   Затем в другом терминале:
+
+   curl -i http://localhost:9091/live
+
+   curl -i http://localhost:9091/ready
+
+   curl -i http://localhost:9091/metrics
+{{ end }}
+
+{{ if .Values.server.enabled }}
+7. Посмотреть логи server:
+
+   kubectl logs \
+     -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=server \
+     -n {{ $namespace }} \
+     --tail=100
+{{ end }}
+
+{{ if or .Values.autoscaling.server.enabled .Values.autoscaling.worker.enabled }}
+8. Проверить HorizontalPodAutoscaler:
+
+   kubectl get hpa -n {{ $namespace }}
+
+   kubectl top pods -n {{ $namespace }}
+{{ end }}
+
+{{ if .Values.serviceMonitor.enabled }}
+9. ServiceMonitor включён.
+
+   Для его работы в кластере должен быть установлен Prometheus Operator.
+
+   Проверка:
+
+   kubectl get servicemonitor -n {{ $namespace }}
+
+   kubectl get crd servicemonitors.monitoring.coreos.com
+{{ else }}
+9. ServiceMonitor выключен.
+
+   Метрики можно проверить вручную через port-forward.
+{{ end }}
+
+{{ if .Values.networkPolicy.enabled }}
+10. NetworkPolicy включён.
+
+    Проверить политики:
+
+    kubectl get networkpolicy -n {{ $namespace }}
+
+    kubectl describe networkpolicy -n {{ $namespace }}
+{{ end }}
+
+Повторно показать эти подсказки после установки:
+
+helm get notes {{ .Release.Name }} -n {{ $namespace }}

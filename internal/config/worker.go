@@ -16,6 +16,7 @@ type WorkerConfig struct {
 	S3             S3Config
 	RabbitMQ       RabbitMQConfig
 	Tracing        TracingConfig
+	CircuitBreaker CircuitBreakerConfig
 }
 
 // LoadWorker загружает конфигурацию worker-а из переменных окружения.
@@ -27,5 +28,6 @@ func LoadWorker() WorkerConfig {
 		S3:             LoadS3(),
 		RabbitMQ:       LoadRabbitMQ(),
 		Tracing:        LoadTracing(defaultWorkerServiceName),
+		CircuitBreaker: LoadCircuitBreaker(),
 	}
 }

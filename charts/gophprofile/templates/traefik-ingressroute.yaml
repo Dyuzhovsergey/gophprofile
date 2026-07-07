@@ -1,0 +1,29 @@
+{{- if and
+  .Values.ingress.enabled
+  .Values.server.enabled
+  (eq .Values.ingress.className "traefik")
+}}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "gophprofile.serverName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+spec:
+  {{- with .Values.ingress.traefik.entryPoints }}
+  entryPoints:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  routes:
+    - kind: Rule
+      match: {{ printf "Host(`%s`) && PathPrefix(`%s`)" .Values.ingress.host .Values.ingress.path | quote }}
+      {{- if .Values.ingress.traefik.buffering.enabled }}
+      middlewares:
+        - name: {{ include "gophprofile.uploadBodyLimitMiddlewareName" . }}
+      {{- end }}
+      services:
+        - name: {{ include "gophprofile.serverName" . }}
+          port: {{ .Values.server.service.httpPort }}
+{{- end }}

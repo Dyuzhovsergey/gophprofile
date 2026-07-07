@@ -37,9 +37,11 @@ type ServerConfig struct {
 	WriteTimeout            time.Duration
 	IdleTimeout             time.Duration
 
-	S3       S3Config
-	RabbitMQ RabbitMQConfig
-	Tracing  TracingConfig
+	S3             S3Config
+	RabbitMQ       RabbitMQConfig
+	Tracing        TracingConfig
+	RateLimit      RateLimitConfig
+	CircuitBreaker CircuitBreakerConfig
 }
 
 // LoadServer загружает конфигурацию HTTP-сервера из переменных окружения.
@@ -56,9 +58,11 @@ func LoadServer() ServerConfig {
 		WriteTimeout:            defaultServerWriteTimeout,
 		IdleTimeout:             defaultServerIdleTimeout,
 
-		S3:       LoadS3(),
-		RabbitMQ: LoadRabbitMQ(),
-		Tracing:  LoadTracing(defaultServerServiceName),
+		S3:             LoadS3(),
+		RabbitMQ:       LoadRabbitMQ(),
+		Tracing:        LoadTracing(defaultServerServiceName),
+		RateLimit:      LoadRateLimit(),
+		CircuitBreaker: LoadCircuitBreaker(),
 	}
 }
 

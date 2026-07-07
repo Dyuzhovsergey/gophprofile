@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gophprofile.configMapName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  GOPHPROFILE_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+
+  GOPHPROFILE_SERVER_ADDRESS: {{ .Values.config.serverAddress | quote }}
+  GOPHPROFILE_WORKER_METRICS_ADDRESS: {{ .Values.config.workerMetricsAddress | quote }}
+  GOPHPROFILE_MAX_UPLOAD_SIZE_BYTES: {{ .Values.config.maxUploadSizeBytes | quote }}
+
+  GOPHPROFILE_RATE_LIMIT_ENABLED: {{ .Values.config.rateLimitEnabled | quote }}
+  GOPHPROFILE_RATE_LIMIT_REQUESTS_PER_SECOND: {{ .Values.config.rateLimitRequestsPerSecond | quote }}
+  GOPHPROFILE_RATE_LIMIT_BURST: {{ .Values.config.rateLimitBurst | quote }}
+
+  GOPHPROFILE_CIRCUIT_BREAKER_ENABLED: {{ .Values.config.circuitBreakerEnabled | quote }}
+  GOPHPROFILE_CIRCUIT_BREAKER_FAILURE_THRESHOLD: {{ .Values.config.circuitBreakerFailureThreshold | quote }}
+  GOPHPROFILE_CIRCUIT_BREAKER_OPEN_TIMEOUT: {{ .Values.config.circuitBreakerOpenTimeout | quote }}  
+
+  GOPHPROFILE_S3_ENDPOINT: {{ .Values.config.s3Endpoint | quote }}
+  GOPHPROFILE_S3_REGION: {{ .Values.config.s3Region | quote }}
+  GOPHPROFILE_S3_BUCKET: {{ .Values.config.s3Bucket | quote }}
+  GOPHPROFILE_S3_USE_PATH_STYLE: {{ .Values.config.s3UsePathStyle | quote }}
+
+  GOPHPROFILE_RABBITMQ_EXCHANGE: {{ .Values.config.rabbitmqExchange | quote }}
+  GOPHPROFILE_RABBITMQ_UPLOAD_QUEUE: {{ .Values.config.rabbitmqUploadQueue | quote }}
+  GOPHPROFILE_RABBITMQ_UPLOAD_ROUTING_KEY: {{ .Values.config.rabbitmqUploadRoutingKey | quote }}
+  GOPHPROFILE_RABBITMQ_DELETE_QUEUE: {{ .Values.config.rabbitmqDeleteQueue | quote }}
+  GOPHPROFILE_RABBITMQ_DELETE_ROUTING_KEY: {{ .Values.config.rabbitmqDeleteRoutingKey | quote }}
+
+  GOPHPROFILE_OTEL_ENABLED: {{ .Values.config.otelEnabled | quote }}
+  GOPHPROFILE_OTEL_EXPORTER_ENDPOINT: {{ .Values.config.otelExporterEndpoint | quote }}

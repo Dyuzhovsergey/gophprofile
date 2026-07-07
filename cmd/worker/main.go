@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,9 +20,12 @@ import (
 	observabilitytracing "github.com/Dyuzhovsergey/gophprofile/internal/observability/tracing"
 	"github.com/Dyuzhovsergey/gophprofile/internal/repository/postgres"
 	s3storage "github.com/Dyuzhovsergey/gophprofile/internal/repository/s3"
+	"github.com/Dyuzhovsergey/gophprofile/internal/resilience/circuitbreaker"
 	"github.com/Dyuzhovsergey/gophprofile/internal/services"
 	avatarworker "github.com/Dyuzhovsergey/gophprofile/internal/worker"
 )
+
+const workerShutdownTimeout = 25 * time.Second
 
 func main() {
 	cfg := config.LoadWorker()
@@ -72,6 +76,8 @@ func main() {
 
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", appMetrics.Handler())
+	metricsMux.HandleFunc("/live", handleWorkerProbe(log))
+	metricsMux.HandleFunc("/ready", handleWorkerProbe(log))
 
 	metricsServer := &http.Server{
 		Addr:              cfg.MetricsAddress,
@@ -120,7 +126,7 @@ func main() {
 
 	avatarRepository := postgres.NewAvatarRepository(db)
 
-	avatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
+	rawAvatarStorage, err := s3storage.NewClient(ctx, cfg.S3)
 	if err != nil {
 		log.LogAttrs(
 			ctx,
@@ -136,9 +142,41 @@ func main() {
 		os.Exit(1)
 	}
 
+	s3CircuitBreaker := circuitbreaker.New(
+		"s3",
+		circuitbreaker.Config{
+			Enabled:          cfg.CircuitBreaker.Enabled,
+			FailureThreshold: cfg.CircuitBreaker.FailureThreshold,
+			OpenTimeout:      cfg.CircuitBreaker.OpenTimeout,
+		},
+		log,
+	)
+
+	avatarStorage := s3storage.NewResilientClient(
+		rawAvatarStorage,
+		s3CircuitBreaker,
+	)
+
 	imageService := services.NewImageService()
 
 	log.Info("s3 storage client created")
+
+	log.Info(
+		"circuit breaker initialized",
+		slog.Bool(
+			"enabled",
+			cfg.CircuitBreaker.Enabled,
+		),
+		slog.Uint64(
+			"failure_threshold",
+			uint64(cfg.CircuitBreaker.FailureThreshold),
+		),
+		slog.Duration(
+			"open_timeout",
+			cfg.CircuitBreaker.OpenTimeout,
+		),
+		slog.String("dependency", "s3"),
+	)
 
 	consumer, err := rabbitmq.NewConsumer(cfg.RabbitMQ)
 	if err != nil {
@@ -179,24 +217,86 @@ func main() {
 		slog.String("upload_queue", cfg.RabbitMQ.UploadQueue),
 	)
 
-	if err := consumer.ConsumeAvatarEvents(
-		ctx,
-		processor.HandleAvatarUploaded,
-		processor.HandleAvatarDeleted,
-	); err != nil && !errors.Is(err, context.Canceled) {
-		log.LogAttrs(
+	consumeErr := make(chan error, 1)
+
+	go func() {
+		consumeErr <- consumer.ConsumeAvatarEvents(
 			ctx,
-			slog.LevelError,
-			"failed to consume avatar events",
-			observabilitylogging.ErrorAttrs(
-				ctx,
-				observabilitylogging.ComponentWorker,
-				"worker.consume_avatar_events",
-				err,
-			)...,
+			processor.HandleAvatarUploaded,
+			processor.HandleAvatarDeleted,
 		)
-		os.Exit(1)
+	}()
+
+	select {
+	case err := <-consumeErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.LogAttrs(
+				ctx,
+				slog.LevelError,
+				"failed to consume avatar events",
+				observabilitylogging.ErrorAttrs(
+					ctx,
+					observabilitylogging.ComponentWorker,
+					"worker.consume_avatar_events",
+					err,
+				)...,
+			)
+			os.Exit(1)
+		}
+
+	case <-ctx.Done():
+		log.Info("worker shutdown signal received")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), workerShutdownTimeout)
+		defer cancel()
+
+		select {
+		case err := <-consumeErr:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				log.LogAttrs(
+					context.Background(),
+					slog.LevelError,
+					"failed to stop worker gracefully",
+					observabilitylogging.ErrorAttrs(
+						context.Background(),
+						observabilitylogging.ComponentWorker,
+						"worker.graceful_shutdown",
+						err,
+					)...,
+				)
+				os.Exit(1)
+			}
+
+		case <-shutdownCtx.Done():
+			log.Error("worker graceful shutdown timeout exceeded", logger.Err(shutdownCtx.Err()))
+			os.Exit(1)
+		}
 	}
 
-	log.Info("GophProfile worker stopped")
+	log.Info("GophProfile worker stopped gracefully")
+}
+
+// workerProbeResponse описывает ответ probe-endpoint-а worker-а.
+type workerProbeResponse struct {
+	Status  string            `json:"status"`
+	Details map[string]string `json:"details"`
+}
+
+// handleWorkerProbe возвращает обработчик liveness/readiness probe worker-а.
+func handleWorkerProbe(log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if err := json.NewEncoder(w).Encode(workerProbeResponse{
+			Status: "ok",
+			Details: map[string]string{
+				"worker": "ok",
+			},
+		}); err != nil {
+			log.Error(
+				"failed to encode worker probe response",
+				logger.Err(err),
+			)
+		}
+	}
 }

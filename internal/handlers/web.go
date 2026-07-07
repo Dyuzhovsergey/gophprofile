@@ -131,7 +131,16 @@ func (h *WebHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		Body:      file,
 	})
 	if err != nil {
-		http.Error(w, "failed to upload avatar", http.StatusBadRequest)
+		if isExternalDependencyUnavailable(err) {
+			writeExternalDependencyUnavailable(w)
+			return
+		}
+
+		http.Error(
+			w,
+			"failed to upload avatar",
+			http.StatusBadRequest,
+		)
 		return
 	}
 

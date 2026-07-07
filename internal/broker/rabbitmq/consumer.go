@@ -265,7 +265,7 @@ func handleAvatarUploadedDelivery(
 	workerMetrics *observabilitymetrics.WorkerMetrics,
 	log *slog.Logger,
 ) error {
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	deliveryCtx := extractTraceHeaders(context.WithoutCancel(ctx), delivery.Headers)
 
 	if log == nil {
 		log = logger.NewNop()
@@ -366,7 +366,7 @@ func handleAvatarDeletedDelivery(
 	workerMetrics *observabilitymetrics.WorkerMetrics,
 	log *slog.Logger,
 ) error {
-	deliveryCtx := extractTraceHeaders(ctx, delivery.Headers)
+	deliveryCtx := extractTraceHeaders(context.WithoutCancel(ctx), delivery.Headers)
 
 	if log == nil {
 		log = logger.NewNop()
@@ -379,14 +379,14 @@ func handleAvatarDeletedDelivery(
 	)
 
 	workerStatus := observabilitymetrics.StatusSuccess
-	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarUploaded)
+	startedAt := workerMetrics.StartWorkerJob(eventTypeAvatarDeleted)
 
 	var spanErr error
 	defer func() {
 		observabilitytracing.RecordError(span, spanErr)
 		span.End()
 
-		workerMetrics.FinishWorkerJob(eventTypeAvatarUploaded, workerStatus, startedAt)
+		workerMetrics.FinishWorkerJob(eventTypeAvatarDeleted, workerStatus, startedAt)
 	}()
 
 	var event domain.AvatarDeletedEvent

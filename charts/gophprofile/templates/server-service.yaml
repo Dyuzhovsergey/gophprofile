@@ -1,0 +1,24 @@
+{{- if .Values.server.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gophprofile.serverName" . }}
+  namespace: {{ include "gophprofile.namespace" . }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  type: {{ .Values.server.service.type }}
+  selector:
+    {{- include "gophprofile.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: {{ .Values.server.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.server.service.metricsPort }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

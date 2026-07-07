@@ -1,4 +1,4 @@
-FROM golang:1.25.10-alpine3.23 AS builder
+FROM golang:1.26.4-alpine3.23 AS builder
 
 WORKDIR /src
 
@@ -17,5 +17,7 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 
 COPY --from=builder /out/worker /app/worker
+
+EXPOSE 9091
 
 ENTRYPOINT ["/app/worker"]

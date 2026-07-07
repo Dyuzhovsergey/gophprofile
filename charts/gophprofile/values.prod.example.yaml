@@ -1,0 +1,145 @@
+# Безопасный пример production-настроек.
+
+server:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: registry.example.com/gophprofile-server
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+worker:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: registry.example.com/gophprofile-worker
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+config:
+  logLevel: info
+
+  serverAddress: ":8080"
+  workerMetricsAddress: ":9091"
+  maxUploadSizeBytes: "10485760"
+
+  rateLimitEnabled: "true"
+  rateLimitRequestsPerSecond: "20"
+  rateLimitBurst: "40"
+
+  circuitBreakerEnabled: "true"
+  circuitBreakerFailureThreshold: "5"
+  circuitBreakerOpenTimeout: "30s"
+
+  s3Endpoint: "https://s3.example.com"
+  s3Region: "eu-central-1"
+  s3Bucket: "gophprofile-avatars"
+  s3UsePathStyle: "false"
+
+  rabbitmqExchange: "avatars.exchange"
+  rabbitmqUploadQueue: "avatar.uploaded.queue"
+  rabbitmqUploadRoutingKey: "avatar.uploaded"
+  rabbitmqDeleteQueue: "avatar.deleted.queue"
+  rabbitmqDeleteRoutingKey: "avatar.deleted"
+
+  otelEnabled: "true"
+  otelExporterEndpoint: "otel-collector.monitoring.svc.cluster.local:4318"
+
+secret:
+  create: false
+  name: gophprofile-secret
+
+migration:
+  enabled: true
+
+  image:
+    repository: registry.example.com/gophprofile-migrate
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+  host: avatars.example.com
+  path: /
+  pathType: Prefix
+
+  tls:
+    - secretName: gophprofile-tls
+      hosts:
+        - avatars.example.com
+
+autoscaling:
+  server:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  worker:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80    
+
+serviceMonitor:
+  enabled: true
+
+  server:
+    enabled: true
+
+  worker:
+    enabled: true
+
+  interval: 30s
+  scrapeTimeout: 10s
+
+  additionalLabels:
+    release: monitoring
+
+
+networkPolicy:
+  enabled: false
+
+rbac:
+  create: true
+  serviceAccountName: ""
+  automountServiceAccountToken: false
+
+securityContext:
+  pod:
+    enabled: true
+
+  container:
+    enabled: true
+
+  tmpVolume:
+    enabled: true
+    mountPath: /tmp
